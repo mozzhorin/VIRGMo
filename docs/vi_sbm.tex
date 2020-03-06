@@ -1,0 +1,584 @@
+\documentclass{article}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{bm}
+
+\renewcommand{\v}[1]{\bm{#1}}
+\newcommand{\E}{\mathbb{E}}
+
+\begin{document}
+
+\section{Stochastic block model}
+
+Some thoughts on variational inference for the stochastic block model.
+
+\subsection{Variational inference}
+
+Variational Bayes approximates the posterior distribution $p(\v{\theta} |
+\v{x})$ using the following identities
+\begin{equation}
+\begin{split}
+\log p(\v{x}) &= \int q(\v{\theta}) \ln p(\v{x}) d\v{\theta} \\
+&= \int q(\v{\theta}) \log \frac{p(\v{x}, \v{\theta}) q(\v{\theta})}{p(\v{\theta} | \v{x}) q(\v{\theta})} d\v{\theta} \\
+&= \int q(\v{\theta}) \log p(\v{x}, \v{\theta}) d\v{\theta} - \int q(\v{\theta}) q(\v{\theta}) d\v{\theta} + \int q(\v{\theta}) \frac{q(\v{\theta})}{p(\v{\theta} | \v{x})} d\v{\theta} \\
+&= \E_q[\log p(\v{x}, \v{\theta})] + H(q) + D_{KL}(q(\v{\theta}) || p(\v{\theta} | \v{x})) \\
+&\geq \E_q[\log p(\v{x}, \v{\theta})] + H(q) \; .
+\end{split}
+\end{equation}
+
+This last term is famously known as the {\em evidence lower bound} (ELBO)
+and commonly optimized wrt $q(\v{\theta})$ in variational Bayes.
+
+\subsubsection{Stochastic gradient}
+
+Using the so called {\em reparametrization trick} the ELBO is amenable to
+stochastic gradient ascent. Consider a distribution $q(\v{\theta}; \v{\eta})$
+with variational parameters $\v{\eta}$. Further, assume that a sample from
+$q$ can be obtained by transforming standard uniform or standard
+normal random variates $\v{z}$, i.e. via some function $\v{\theta} =
+f_{\v{\theta}}(\v{z}; \v{\eta})$. Then, by Leibniz rule and the chain rule the
+derivative of the first term of the ELBO is given by
+
+\begin{equation}
+\begin{split}
+\frac{\partial}{\partial \v{\eta}} \E_q[ \log p(\v{x}, \v{\theta}) ]
+&= \frac{\partial}{\partial \v{\eta}} \int q(\v{\theta}; \v{\eta}) \log p(\v{x}, \v{\theta}) d\v{\theta} \\
+&= \frac{\partial}{\partial \v{\eta}} \int p(\v{z}) \log p(\v{x}, f_{\v{\theta}}(\v{z}; \v{\eta})) d\v{z} \\
+&= \E_{\v{z}}\left[ \frac{\partial}{\partial \v{\theta}} \log p(\v{x}, \v{\theta}) \frac{\partial}{\partial \v{\eta}} f_{\v{\theta}}(\v{z}; \v{\eta}) \right]
+\end{split}
+\end{equation}
+
+
+which is then stochastically evaluated using a few Monte-Carlo
+samples, i.e.
+\begin{equation}
+\begin{split}
+\frac{\partial}{\partial \v{\eta}} \E_q[ \log p(\v{x}, \v{\theta}) ]
+&\approx \frac{1}{M} \sum_i \frac{\partial}{\partial \v{\theta}} \log p(\v{x}, \v{\theta})
+\frac{\partial}{\partial \v{\eta}} f_{\v{\theta}}(\v{z}_i; \v{\eta}) \; .
+\end{split}
+\end{equation}
+
+\subsection{Stochastic block model}
+
+The {\em stochastic block model} (SBM) is a random graph model able to
+describe clustering/modularity and other structures in dense
+graphs. It is a special case of the more general class of graphin
+models that can be derived from exchangeability arguments
+\cite{OrbanzRoy}.
+
+According to the SBM a graph on $N$ nodes, actually its adjacency
+matrix, is produced by the following generative process:
+\begin{itemize}
+\item Randomly assign a type $c_i \in \{1,\ldots,K\}$ to each node
+  $i$: \[ c_i \sim \mathtt{Categorical}(\theta_1,\ldots,\theta_K) \]
+  
+  Note: This assignment is unobserved, i.e. the SBM is an example of a
+  {\em latent/hidden variable model}.
+\item Draw a link between $i$ and $j$ with probability $p_{c_i
+    c_j}$, i.e.
+  \[ A_{ij} \sim \mathtt{Bernoulli}(p_{c_i c_j}) \]
+  
+  Note: Links between nodes of the same types are independent (as in
+  the Erd\H{o}s-R{\'e}nyi model).
+\end{itemize}
+
+Link probabilities are usually collected in a matrix
+$\v{B} \in [0,1]^{K \times K}$, i.e. $(B)_{c c'} = p_{c c'}$ where
+$K \ll N$.
+
+Thus, the parameters of the SBM are $\v{\theta}$ and $\v{B}$. In
+Bayesian statistics, we need to specify their prior distribution
+$p(\v{\theta}, \v{B})$. Commonly an independent Dirichlet prior for
+$\v{\theta}$ and Beta priors for the entries of $\v{B}$ are
+assumed. These are also the (conditionally) conjugate priors for the
+SBM.
+
+Overall, we arrive at the following joint probability:
+\begin{equation}
+\begin{split}
+p(\v{A}, \v{c}, \v{\theta}, \v{B})
+&= p(\v{\theta}) p(\v{B}) p( \v{c} | \v{\theta} ) p( \v{A} | \v{c}, \v{B} ) \\
+&= p(\v{\theta}) \prod_{c,c'} p(B_{c c'}) \prod_i p(c_i | \v{\theta}) \prod_{ij} p(A_{ij} | B_{c_i c_j}) \\
+&= p(\v{\theta}) \prod_{c,c'} p(B_{c c'}) \prod_i \theta_{c_i} \prod_{ij} B_{c_i c_j}^{A_{ij}} (1 - B_{c_i c_j})^{1 - {A_{ij}}} \\
+&= p(\v{\theta}) \prod_{c,c'} p(B_{c c'}) \prod_c \theta_{c}^{N_c} \prod_{c,c'} B_{c c'}^{n_{c c'}} (1 - B_{c c'})^{N_{c} N_{c'} - n_{c c'}}
+\end{split}
+\end{equation}
+
+where we have used the sufficient statistics
+\begin{itemize}
+\item $N_c$, counting number of nodes in each group $c$
+\item and $n_{c c'}$, counting number of edges between groups $c$ and
+  $c'$.
+\end{itemize}
+
+Note that it is not possible to marginalize over the latent class
+assignment, as the resulting summation
+\begin{equation}
+\begin{split}
+\sum_{\v{c}} p(\v{A}, \v{c}, \v{\theta}, \v{B})
+&= \sum_{c_1 = 1}^K \cdots \sum_{c_N = 1}^K p(\v{A}, \v{c}, \v{\theta}, \v{B})
+\end{split}
+\end{equation}
+
+involves exponentially many terms and cannot be simplified/separated.
+
+Thus, we need to resort to some approximation algorithm \ldots
+
+\subsubsection{Variational inference}
+
+A tractable approximation for the SBM can be obtained by variational
+inference. In this case, the full posterior $p(\v{c}, \v{\theta},
+\v{B} | \v{A})$ is approximated with simpler distribution that in
+particular factorizes over all nodes, i.e.
+\begin{equation}
+\begin{split}
+q(\v{c}, \v{\theta}, \v{B})
+&= \prod_i q(c_i) q(\v{\theta}) \prod_{c,c'} q(B_{cc'}) \; .
+\end{split}
+\end{equation}
+
+Here, the discrete distributions $q(c_i)$ are obviously categorical,
+i.e. $q(c; \v{\eta}) = \eta_{c}$ and by conjugacy the optimal choice
+for $q(\v{\theta})$ and $q(B_{cc'})$ can be shown to be the Dirichlet
+and Beta distribution respectively.
+
+Using that approximation the log marginal likelihood can be
+approximated by the ELBO and especially the expectation over the
+approximating distribution for the latent class assignment can be
+carried out explicitly:
+\begin{equation}
+\begin{aligned}
+& \E_{q(\v{c}, \v{\theta}, \v{B})}[\log p(\v{A}, \v{c}, \v{\theta}, \v{B})] + H(q(\v{c}, \v{\theta}, \v{B})) \\ 
+&= \E_{q(\v{\theta}, \v{B})} \Biggl[ \E_{q(\v{c})} \bigl[ \log p(\v{\theta}) + \sum_{cc'} \log p(B_{cc'}) + \sum_i \log p(c_i | \v{\theta}) + \sum_{ij} \log p(A_{ij} | B_{c_ic_j}) \bigm\vert \v{\theta}, \v{B} \bigr] \Biggr]\\ 
+& \quad + H(q(\v{c}, \v{\theta}, \v{B})) \\
+&= \E_{q(\v{\theta}, \v{B})}\Biggl[ \log p(\v{\theta}) + \sum_{cc'} \log p(B_{cc'}) + \sum_{c_1=1}^K \cdots \sum_{c_N=1}^K \prod_i q(c_i) \left( \sum_i \log p(c_i | \v{\theta}) + \sum_{ij} \log p(A_{ij} | B_{c_ic_j}) \right) \Biggr]\\ 
+& \quad + H(q(\v{c}, \v{\theta}, \v{B})) \\
+&= \E_{q(\v{\theta}, \v{B})}\Biggl[ \log p(\v{\theta}) + \sum_{cc'} \log p(B_{cc'}) + \sum_i \sum_{c_i=1}^K q(c_i) \log p(c_i | \v{\theta})\\
+& \quad + \sum_{ij} \sum_{c_i=1}^K \sum_{c_j=1}^K q(c_i) q(c_j) \log p(A_{ij} | B_{c_ic_j})\Biggr] + \sum_i H(q(c_i)) + H(\v{\theta}) + \sum_{cc'} H(q(B_{cc'})) \\
+&= \E_{q(\v{\theta}, \v{B})}\Biggl[ \log p(\v{\theta}) + \sum_{cc'} \log p(B_{cc'}) + \sum_i \sum_{c_i=1}^K \eta_{c_i} \log \theta_{c_i}\\ 
+& \quad + \sum_{ij} \sum_{c_i=1}^K \sum_{c_j=1}^K \eta_{c_i} \eta_{c_j} \biggl( A_{ij} \log B_{c_ic_j} + (1 - A_{ij}) \log (1 - B_{c_ic_j})\biggr) \Biggr] \\
+& \quad - \sum_i \sum_{c_i=1}^K \eta_{c_i} \log \eta_{c_i} + \E_{q(\v{\theta})}[- \log q(\v{\theta})] + \sum_{cc'} \E_{q(B_{cc'})}[- \log q(B_{cc'})]\\
+\end{aligned}
+\end{equation}
+
+The remaining expectation over $q(\v{\theta}, \v{B})$ can be
+approximated by Monte-Carlo sampling as explained above. Further, the
+sum $\sum_{c_i=1}^K \sum_{c_j=1}^K \eta_{c_i} \eta_{c_j} \log
+B_{c_ic_j}$ can be conveniently written as a matrix multiplication
+$\v{\eta}_i^T \log(\v{B}) \v{\eta}_j$.
+
+\subsubsection{Scalable algorithm}
+
+A scalable algorithm is then obtained by maximizing the stochastic
+ELBO with respect to all variational parameters, i.e. of
+$q(\v{\theta}, \v{B})$ and $\v{\eta}_1, \ldots, \v{\eta}_N$. 
+
+For even larger data sets also minibatch training should be feasible.
+To this end, the ELBO can be written as a sum over all vertex pairs
+\begin{equation}
+\begin{split}
+& \sum_{ij \atop i \neq j} \left[ \frac{1}{N (N - 1)} \E_{q(\v{\theta})}[\log p(\v{\theta}) - \log q(\v{\theta})] \right. \\
+&  \quad + \frac{1}{N (N - 1)} \sum_{c_i=1}^K \sum_{c_j=1}^K  \E_{q(B_{c_ic_j})}[\log p(B_{c_ic_j}) - \log q(B_{c_ic_j})] \\
+&  \quad + \frac{1}{N - 1} \sum_{c_i=1}^K \eta_{c_i} (\E_{q(\v{\theta})}[\log \theta_{c_i}] - \log \eta_{c_i}) \\
+&  \quad \left.
++ \sum_{c_i=1}^K \sum_{c_j=1}^K \eta_{c_i} \eta_{c_j}
+\E_{q(B_{c_ic_j})}\biggl[ A_{ij} \log B_{c_ic_j} + (1 - A_{ij}) \log (1 - B_{c_ic_j}) \biggr]
+\right]
+\end{split}
+\end{equation}
+
+where we assume that the diagonal of the adjacency matrix, i.e.
+$i = j$, is excluded from the likelihood. The gradient can then be
+evaluated with respect to a minibatch containing just a fraction of
+all $N (N - 1)$ vertex pairs.
+
+Note that using conjugate priors and matches variational distributions
+all expectations can be computed analytically. The minibatch ELBO is
+thus a function of the variational parameters and can be optimized
+with standard optimizers, e.g. minibatch stochastic gradient ascent or
+BFGS over all data points. Obviously, using the reparameterization
+explained above also a doubly stochastic variant with additional
+Monte-Carlo sampling of the expectations is feasible.
+
+\subsubsection{Algorithm implementation}
+
+Implementing this version of the algorithm, we separated different parts of ELBO as building blocks responsible for different model characteristics. Later on, adding new blocks we can modify ELBO for more advanced models, those utilize degree correction and non-zero-one weights of edges.\\
+
+As we said before, we assume 
+\begin{align*}
+\v{\theta} &\sim \mathtt{Dirichlet}(\theta_1,...,\theta_K)\\
+\v{B} &\sim \mathtt{Beta}(\v{\alpha},\v{\beta})
+\end{align*}
+
+
+This allows us to calculate the whole ELBO analytically. The first and the second terms can be presented through Kullback-Leibler divergence between two Dirichlet distributions \cite{bibid}:
+
+\begin{equation}
+\begin{split}
+\E_{q(\v{\theta})}\left[\log p(\v{\theta}) - \log q(\v{\theta})\right] = - D_{KL} \left(q(\v{\theta})||p(\v{\theta})\right) 
+\end{split}
+\end{equation}
+\begin{equation}
+\begin{split}
+\sum_{c_i=1}^K \sum_{c_j=1}^K \E_{q(B_{c_ic_j})}[\log p(B_{c_ic_j}) - \log q(B_{c_ic_j})] &= 
+\E_{q(\v{B})}[\log p(\v{B}) - \log q(\v{B})]\\ &= - D_{KL}\left(q(\v{B})||p(\v{B})\right)
+\end{split}
+\end{equation}
+
+Let us denote the third term as $\Phi(i)$ and the last one as $\Omega(i,j)$. In both cases, the expectation of the logarithm can be calculated with digamma function $\psi()$, i.e.
+\begin{equation}
+\begin{split}
+\Phi(i) &= \sum_{c_i=1}^K \eta_{c_i} \biggl(\E_{q(\v{\theta})}[\log \theta_{c_i}] - \log \eta_{c_i}\biggr) \\
+&= \sum_{c_i=1}^K \eta_{c_i} \left(\psi(\theta_{c_i}) - \psi \left(\sum_{c_i}\theta_{c_i}\right) - \log \eta_{c_i}\right) 
+\end{split}
+\end{equation}
+\begin{equation}
+\begin{split}
+\Omega(i,j) &= \sum_{c_i=1}^K \sum_{c_j=1}^K \eta_{c_i} \eta_{c_j}
+\E_{q(B_{c_ic_j})}\biggl[ A_{ij} \log B_{c_ic_j} + (1 - A_{ij}) \log (1 - B_{c_ic_j}) \biggr]\\
+&= \sum_{c_i=1}^K \sum_{c_j=1}^K \eta_{c_i} \eta_{c_j} \Biggl(A_{ij} \biggl(\psi(\alpha_{c_ic_j}) - \psi(\alpha_{c_ic_j} + \beta_{c_ic_j})\biggr) + \biggl(1 - A_{ij}\biggr)\biggl(\psi(\beta_{c_ic_j}) - \psi(\alpha_{c_ic_j} + \beta_{c_ic_j})\biggr)\Biggr)
+\end{split}
+\end{equation} 
+
+Combining Eq. 8-12, ELBO for a minibatch $\Lambda$ of length $L$ which contains edges $(i,j)$ can be written as:
+\begin{equation}
+\begin{split}
+ELBO_{SBM}(\Lambda) = \sum_{ij \atop i \neq j} \biggl( &- \frac{L}{N (N - 1)} D_{KL} \left(q(\v{\theta})||p(\v{\theta})\right)\\
+\quad &- \frac{L}{N (N - 1)} D_{KL}\left(q(\v{B})||p(\v{B})\right) \\
+\quad &+ \frac{L}{N - 1}\Phi(i)\\
+\quad &+ \Omega(i,j)   \biggr)
+\end{split}
+\end{equation} 
+
+
+\subsection{Stochastic block model with degree correction}
+If network's nodes have significantly different degree, SBM can prefer to separate nodes not based on their latent class but on their degree. In order to overcome this difficulties, the degree-corrected SBM (DCSBM) was proposed. The original model \cite{bibid} uses Poisson distribution to define connection's probability between two nodes, which makes it more suitable for multigraphs. We decided to introduce degree correction in the standard SBM within Bernoulli distribution:
+\begin{itemize}
+	\item A link between $i$ and $j$ is drawn with probability $p_{i,j}$, i.e.
+	\[ A_{ij} \sim \mathtt{Bernoulli}(p_{i,j}) \]
+	where 
+	\[ p_{i,j} = \frac{e^{\delta_i + \delta_j}}{1 + e^{\delta_i + \delta_j}} \cdot B_{c_i,c_j} 
+	 = \sigma(\delta_i + \delta_j) \cdot B_{c_i,c_j}\]
+	Here $\sigma()$ is a sigmoid function, $\delta_i$ and $\delta_j$ correspond to expected degree of $i$ and $j$.
+\end{itemize}
+Further, we arrive at the following joint probability:
+\begin{equation}
+\begin{split}
+p(\v{A}, \v{c}, \v{\theta}, \v{B}, \v{\delta})
+&= p(\v{\theta}) p(\v{B}) p(\v{\delta}) p( \v{c} | \v{\theta} ) p( \v{A} | \v{c}, \v{B}, \v{\delta} ) \\
+&= p(\v{\theta}) \prod_{c,c'} p(B_{c c'}) \prod_{i} p(\delta_i) \prod_i p(c_i | \v{\theta}) \prod_{ij} p(A_{ij} | B_{c_i c_j}, \delta_i, \delta_j) \\
+&= p(\v{\theta}) \prod_{c,c'} p(B_{c c'}) \prod_{i} p(\delta_i) \prod_i \theta_{c_i}\\
+& \quad \cdot \prod_{ij} (\sigma(\delta_i + \delta_j) \cdot B_{c_i,c_j})^{A_{ij}} (1 - (\sigma(\delta_i + \delta_j) \cdot B_{c_i,c_j}))^{1 - {A_{ij}}} \\
+%&= p(\v{\theta}) \prod_{c,c'} p(B_{c c'}) \prod_{i} p(\delta_i) \prod_i \theta_{c_i} \\
+%& \quad \cdot \prod_{ij} (\sigma(\delta_i + \delta_j) \cdot B_{c_i,c_j})^{n_{c c'}} (1 - (\sigma(\delta_i + \delta_j) \cdot B_{c_i,c_j}))^{N_{c} N_{c'} - n_{c c'}} 
+\end{split}
+\end{equation}
+
+
+\subsubsection{Variational inference}	
+Analog to simple SBM, the posterior is approximated with
+\begin{equation}
+\begin{split}
+q(\v{c}, \v{\theta}, \v{B}, \v{\delta})
+&= \prod_i q(c_i) q(\v{\theta}) \prod_{c,c'} q(B_{cc'}) \prod_i q(\delta_i)\; .
+\end{split}
+\end{equation}
+and the ELBO is
+\begin{equation}
+\begin{aligned}
+& \E_{q(\v{c}, \v{\theta}, \v{B}, \v{\delta})}[\log p(\v{A}, \v{c}, \v{\theta}, \v{B}, \v{\delta})] + H(q(\v{c}, \v{\theta}, \v{B}, \v{\delta})) \\
+&= \E_{q(\v{\theta}, \v{B}, \v{\delta})}\Biggl[ \E_{q(\v{c})} \biggl[ \log p(\v{\theta})
++ \sum_{cc'} \log p(B_{cc'}) + \sum_i \log p(\delta_i)\\ 
+& \quad + \sum_i \log p(c_i | \v{\theta}) + \sum_{ij} \log p(A_{ij} | B_{c_i c_j}, \delta_i, \delta_j) \biggm\vert \v{\theta}, \v{B}, \v{\delta} \biggr] \Biggr] \\
+& \quad + H(q(\v{c}, \v{\theta}, \v{B}, \v{\delta})) \\
+&= \E_{q(\v{\theta}, \v{B}, \v{\delta})}\Biggl[ \log p(\v{\theta}) + \sum_{cc'} \log p(B_{cc'}) + \sum_i \log p(\delta_i)\\
+& \quad + \sum_{c_1=1}^K \cdots \sum_{c_N=1}^K \prod_i q(c_i) \left( \sum_i \log p(c_i | \v{\theta})
++ \sum_{ij} \log p(A_{ij} | B_{c_i c_j}, \delta_i, \delta_j) \right) \Biggr]\\
+& \quad + H(q(\v{c}, \v{\theta}, \v{B}, \v{\delta})) \\
+&= \E_{q(\v{\theta}, \v{B}, \v{\delta})}\Biggl[ \log p(\v{\theta})
++ \sum_{cc'} \log p(B_{cc'}) + \sum_i \log p(\delta_i)\\
+& \quad + \sum_i \sum_{c_i=1}^K q(c_i) \log p(c_i | \v{\theta})
++ \sum_{ij} \sum_{c_i=1}^K \sum_{c_j=1}^K q(c_i) q(c_j) \log p(A_{ij} | B_{c_i c_j}, \delta_i, \delta_j)\Biggr] \\
+& \quad + \sum_i H(q(c_i)) + H(\v{\theta}) + \sum_{cc'} H(q(B_{cc'})) + \sum_i H(q(\delta_i))\\
+&= \E_{q(\v{\theta}, \v{B}, \v{\delta})}\Biggl[ \log p(\v{\theta})
++ \sum_{cc'} \log p(B_{cc'}) + \sum_i \log p(\delta_i)
++ \sum_i \sum_{c_i=1}^K \eta_{c_i} \log \theta_{c_i}\\
+& \quad + \sum_{ij} \sum_{c_i=1}^K \sum_{c_j=1}^K \eta_{c_i} \eta_{c_j}
+\biggl( A_{ij} \log \bigl(\sigma(\delta_i + \delta_j) \cdot B_{c_ic_j}\bigr) + (1 - A_{ij}) \log \bigl(1 - (\sigma(\delta_i + \delta_j) \cdot B_{c_ic_j})\bigr) \biggr)\Biggr] \\
+& \quad - \sum_i \sum_{c_i=1}^K \eta_{c_i} \log \eta_{c_i} + \E_{q(\v{\theta})}[- \log q(\v{\theta})] + \sum_{cc'} \E_{q(B_{cc'})}[- \log q(B_{cc'})] + \sum_i \E_{q(\delta_i)}[- \log q(\delta_i)]
+\end{aligned}
+\end{equation}
+
+\subsubsection{Scalable algorithm}
+
+As in the previous section, ELBO for a minibatch can be written as a sum over all vertex pairs
+\begin{equation}
+\begin{split}
+& \sum_{ij \atop i \neq j} \Biggl[ \frac{1}{N (N - 1)} \E_{q(\v{\theta})}[\log p(\v{\theta}) - \log q(\v{\theta})]  \\
+&  \quad + \frac{1}{N (N - 1)} \sum_{c_i=1}^K \sum_{c_j=1}^K \E_{q(B_{c_ic_j})}[\log p(B_{c_ic_j}) - \log q(B_{c_ic_j})] \\
+&  \quad + \frac{1}{N - 1} \sum_{c_i=1}^K \eta_{c_i} (\E_{q(\v{\theta})}[\log \theta_{c_i}] - \log \eta_{c_i}) \\
+&  \quad + \frac{1}{N - 1} \sum_i \E_{q(\v{\delta})}[\log p(\delta_i) - \log q(\delta_i)] \\
+&  \quad + \sum_{c_i=1}^K \sum_{c_j=1}^K \eta_{c_i} \eta_{c_j}
+\E_{q(B_{c_ic_j})}\biggl[ A_{ij} \log \bigl(\sigma(\delta_i + \delta_j) \cdot B_{c_ic_j}\bigr) + (1 - A_{ij}) \log \bigl(1 - (\sigma(\delta_i + \delta_j) \cdot B_{c_ic_j})\bigr) \biggr] \Biggr]
+\end{split}
+\end{equation}
+
+\subsubsection{Algorithm implementation}
+
+Comparing the algorithm for DCSBM and SBM, we see that the first three terms stay the same. The next assumption
+\begin{align*}
+\v{\delta} &\sim \mathtt{Normal}(\mu_\delta, \sigma_\delta^2)
+\end{align*}
+allows us to calculate also the third term analytically, i.e.
+\begin{equation}
+\begin{split}
+\sum_i \E_{q(\v{\delta})}[\log p(\delta_i) - \log q(\delta_i)] = - D_{KL} \left(q(\v{\delta})||p(\v{\delta})\right) 
+\end{split}
+\end{equation}
+Unfortunately, there is no analytical solution the last term $\widehat{\Omega}(i,j)$ and it requires approximation of the expectation through sampling. The final formula for the ELBO is written as
+\begin{equation}
+\begin{split}
+ELBO_{DCSBM}(\Lambda) = \sum_{ij \atop i \neq j} \biggl( &- \frac{L}{N (N - 1)} D_{KL} \left(q(\v{\theta})||p(\v{\theta})\right)\\
+\quad &- \frac{L}{N (N - 1)} D_{KL}\left(q(\v{B})||p(\v{B})\right) \\
+\quad &+ \frac{L}{N - 1}\Phi(i)\\
+\quad &- \frac{L}{N - 1} D_{KL} \left(q(\v{\delta})||p(\v{\delta})\right) \\
+\quad &+ \widehat{\Omega}(i,j)   \biggr)
+\end{split}
+\end{equation} 
+
+\subsection{Stochastic block models for weighted graphs}
+Two of the presented models and algorithms can be easily modified to work with weighted graphs. In weighted SBM and DCSBM (WSBM and WDCSBM) after a link between nodes is drawn, its weight is sampled from the distribution
+\begin{align*}
+w_{ij} &\sim \mathtt{Log-Normal}(\mu_{c_i c_j}, 1/\tau_{c_i c_j}^2)
+\end{align*}
+which depends on the latent class assignments of the nodes. Here $\tau_{c_i c_j}$ is the precision that is inversely proportional to the scale. Note, that in this case all weights are non-negative. This allows us to interpret all edges with zero weights as not existing.\\
+
+The join probability of WSBM will have the following form:
+\begin{equation}
+\begin{split}
+p(\v{A}, \v{c}, \v{\theta}, \v{B}, \v{w})
+&= p(\v{\theta}) p(\v{B}) p(\v{w}) p( \v{c} | \v{\theta} ) p( \v{A} | \v{c}, \v{B} ) \\
+&= p(\v{\theta}) \prod_{c,c'} p(B_{c c'}) \prod_{c,c'} p(\mu_{c c'}) \prod_{c,c'} p(\tau_{c c'}) \prod_i p(c_i | \v{\theta})\\
+& \quad \cdot  \prod_{ij} p(A_{ij} | B_{c_i c_j}) \prod_{ij} p(w_{ij} | \mu_{c_i c_j}, \tau_{c_i c_j})\\
+&= p(\v{\theta}) \prod_{c,c'} p(B_{c c'}) \prod_{c,c'} p(\mu_{c c'}) \prod_{c,c'} p(\tau_{c c'}) \prod_i \theta_{c_i}\\
+& \quad \cdot \prod_{ij} B_{c_i c_j}^{A_{ij}} (1 - B_{c_i c_j})^{1 - {A_{ij}}} \prod_{ij} p(w_{ij} | \mu_{c_i c_j}, \tau_{c_i c_j}),
+\end{split}
+\end{equation}
+its variational distribution will be
+\begin{equation}
+\begin{split}
+q(\v{c}, \v{\theta}, \v{B}, \v{\mu}, \v{\tau})
+&= \prod_i q(c_i) q(\v{\theta}) \prod_{c,c'} q(B_{cc'}) \prod_{c,c'} q(\mu_{cc'}) \prod_{c,c'} q(\tau_{cc'})\; ,
+\end{split}
+\end{equation}
+and the ELBO
+
+\begin{equation}
+\begin{aligned}
+& \E_{q(\v{c}, \v{\theta}, \v{B}, \v{\mu}, \v{\tau})}[\log p(\v{A}, \v{c}, \v{\theta}, \v{B}, \v{\mu}, \v{\tau})] + H(q(\v{c}, \v{\theta}, \v{B}, \v{\mu}, \v{\tau})) \\ 
+&= \E_{q(\v{\theta}, \v{B}, \v{\mu}, \v{\tau})} \Biggl[ \E_{q(\v{c})} \biggl[ \log p(\v{\theta}) + \sum_{cc'} \log p(B_{cc'}) + \sum_{cc'} \log p(\mu_{cc'}) + \sum_{cc'} \log p(\tau_{cc'})\\
+& \quad + \sum_i \log p(c_i | \v{\theta}) + \sum_{ij} \log p(A_{ij} | B_{c_ic_j}) + \sum_{ij} \log p(w_{ij} | \mu_{c_ic_j}, \tau_{c_ic_j}) \biggm\vert \v{\theta}, \v{B}, \v{\mu}, \v{\tau} \biggr] \Biggr]\\ 
+& \quad + H(q(\v{c}, \v{\theta}, \v{B}, \v{\mu}, \v{\tau})) \\
+&= \E_{q(\v{\theta}, \v{B}, \v{\mu}, \v{\tau})}\Biggl[ \log p(\v{\theta}) + \sum_{cc'} \log p(B_{cc'}) + \sum_{cc'} \log p(\mu_{cc'}) + \sum_{cc'} \log p(\tau_{cc'})\\
+& \quad + \sum_{c_1=1}^K \cdots \sum_{c_N=1}^K \prod_i q(c_i) \left( \sum_i \log p(c_i | \v{\theta}) + \sum_{ij} \log p(A_{ij} | B_{c_ic_j}) + \sum_{ij} \log p(w_{ij} | \mu_{c_ic_j}, \tau_{c_ic_j})\right) \Biggr]\\ 
+& \quad + H(q(\v{c}, \v{\theta}, \v{B}, \v{\mu}, \v{\tau})) \\
+&= \E_{q(\v{\theta}, \v{B}, \v{\mu}, \v{\tau})}\Biggl[ \log p(\v{\theta}) + \sum_{cc'} \log p(B_{cc'}) + \sum_{cc'} \log p(\mu_{cc'}) + \sum_{cc'} \log p(\tau_{cc'})\\
+& \quad + \sum_i \sum_{c_i=1}^K q(c_i) \log p(c_i | \v{\theta}) + \sum_{ij} \sum_{c_i=1}^K \sum_{c_j=1}^K q(c_i) q(c_j) \log p(A_{ij} | B_{c_ic_j})\\
+& \quad + \sum_{ij} \sum_{c_i=1}^K \sum_{c_j=1}^K q(c_i) q(c_j) \log p(w_{ij} | \mu_{c_ic_j}, \tau_{c_ic_j})\Biggr]\\
+& \quad + \sum_i H(q(c_i)) + H(\v{\theta}) + \sum_{cc'} H(q(B_{cc'})) + \sum_{cc'} H(q(\mu_{cc'})) + \sum_{cc'} H(q(\tau_{cc'})) \\
+&= \E_{q(\v{\theta}, \v{B}, \v{\mu}, \v{\tau})}\Biggl[ \log p(\v{\theta}) + \sum_{cc'} \log p(B_{cc'}) + \sum_{cc'} \log p(\mu_{cc'}) + \sum_{cc'} \log p(\tau_{cc'})+ \sum_i \sum_{c_i=1}^K \eta_{c_i} \log \theta_{c_i}\\ 
+& \quad + \sum_{ij} \sum_{c_i=1}^K \sum_{c_j=1}^K \eta_{c_i} \eta_{c_j} \biggl( A_{ij} \log B_{c_ic_j} + (1 - A_{ij}) \log (1 - B_{c_ic_j})\biggr)  \\
+& \quad + \sum_{ij} \sum_{c_i=1}^K \sum_{c_j=1}^K \eta_{c_i} \eta_{c_j} \log p(w_{ij} | \mu_{c_ic_j}, \tau_{c_ic_j}) \Biggr] - \sum_i \sum_{c_i=1}^K \eta_{c_i} \log \eta_{c_i} + \E_{q(\v{\theta})}[- \log q(\v{\theta})]\\
+& \quad + \sum_{cc'} \E_{q(B_{cc'})}[- \log q(B_{cc'})] + \sum_{cc'} \E_{q(\mu_{cc'})}[- \log q(\mu_{cc'})] + \sum_{cc'} \E_{q(\tau_{cc'})}[- \log q(\tau_{cc'})]\\
+\end{aligned}
+\end{equation}
+
+ELBO for a minibatch is
+\begin{equation}
+\begin{split}
+& \sum_{ij \atop i \neq j} \Biggl[ \frac{1}{N (N - 1)} \E_{q(\v{\theta})}\biggl[\log p(\v{\theta}) - \log q(\v{\theta})\biggr]  \\
+&  \quad + \frac{1}{N (N - 1)} \sum_{c_i=1}^K \sum_{c_j=1}^K  \E_{q(B_{c_ic_j})}\biggl[\log p(B_{c_ic_j}) - \log q(B_{c_ic_j})\biggr] \\
+&  \quad + \frac{1}{N - 1} \sum_{c_i=1}^K \eta_{c_i} \biggl(\E_{q(\v{\theta})}[\log \theta_{c_i}] - \log \eta_{c_i}\biggr) \\
+&  \quad 
++ \sum_{c_i=1}^K \sum_{c_j=1}^K \eta_{c_i} \eta_{c_j}
+\E_{q(B_{c_ic_j})}\biggl[ A_{ij} \log B_{c_ic_j} + (1 - A_{ij}) \log (1 - B_{c_ic_j}) \biggr]\\
+&  \quad + \frac{1}{N (N - 1)} \sum_{c_i=1}^K \sum_{c_j=1}^K  \E_{q(\mu_{c_ic_j})}\biggl[\log p(\mu_{c_ic_j}) - \log q(\mu_{c_ic_j})\biggr] \\
+&  \quad + \frac{1}{N (N - 1)} \sum_{c_i=1}^K \sum_{c_j=1}^K  \E_{q(\tau_{c_ic_j})}\biggl[\log p(\tau_{c_ic_j}) - \log q(\tau_{c_ic_j})\biggr] \\
+&  \quad + \sum_{c_i=1}^K \sum_{c_j=1}^K \eta_{c_i} \eta_{c_j}
+\E_{q(\mu_{c_ic_j},\tau_{c_ic_j})}\biggl[ \log p(w_{ij} | \mu_{c_ic_j}, \tau_{c_ic_j}) \biggr]
+\Biggr]
+\end{split}
+\end{equation}
+
+\subsubsection{Algorithm implementation}
+ Assume
+\begin{align*}
+\v{\mu} &\sim \mathtt{Normal}(\v{m}, \v{s}^2)\\
+\v{\tau} &\sim \mathtt{Gamma}(\v{k}, \v{t})
+\end{align*}
+where $k$ is a shape and $t$ is a scale.\\
+
+First four terms of ELBO are similar to the algorithm for SBM. The fifth and sixth terms can be computed through Kullback-Leibler divergence between two Normal and two Gamma distributions:
+\begin{equation}
+\begin{split}
+\sum_{c_i=1}^K \sum_{c_j=1}^K \E_{q(\mu_{c_ic_j})}[\log p(\mu_{c_ic_j}) - \log q(\mu_{c_ic_j})] &= 
+\E_{q(\v{\mu})}[\log p(\v{\mu}) - \log q(\v{\mu})]\\ &= - D_{KL}\left(q(\v{\mu})||p(\v{\mu})\right)
+\end{split}
+\end{equation}
+\begin{equation}
+\begin{split}
+\sum_{c_i=1}^K \sum_{c_j=1}^K \E_{q(\tau_{c_ic_j})}[\log p(\tau_{c_ic_j}) - \log q(\tau_{c_ic_j})] &= 
+\E_{q(\v{\tau})}[\log p(\v{\tau}) - \log q(\v{\tau})]\\ &= - D_{KL}\left(q(\v{\tau})||p(\v{\tau})\right)
+\end{split}
+\end{equation}
+ 
+The last term $\Psi(i,j)$ can be also calculated as the logarithm of PDF of a Normal distribution:
+\begin{equation}
+\begin{split}
+\Psi(i,j) &= \E_{q(\mu_{c_ic_j},\tau_{c_ic_j})}\biggl[ \log p(w_{ij} | \mu_{c_ic_j}, \tau_{c_ic_j}) \biggr] \\
+&= - \frac{1}{2} \log (2\pi) + \frac{1}{2} \E_{q(\tau_{c_ic_j})}[\log(\tau_{c_ic_j})] - \log(w_{ij}) \\
+& \quad - \frac{1}{2} \E_{q(\tau_{c_ic_j})}\bigl[\tau_{c_ic_j}\bigr] \E_{q(\mu_{c_ic_j})}\bigl[\log^2(w_{ij}) -2 \mu_{c_ic_j} \log(w_{ij}) + \mu_{c_ic_j}^2 \bigr]\\
+&= - \frac{1}{2} \log (2\pi) + \frac{1}{2}\biggl( \psi(k_{c_ic_j}) + \log (t_{c_ic_j})\biggr) - \log(w_{ij}) \\
+& \quad - \frac{1}{2} k_{c_ic_j} t_{c_ic_j} \biggl(\log^2(w_{ij}) -2 m_{c_ic_j} \log(w_{ij}) + m_{c_ic_j}^2 + s_{c_ic_j}^2 \biggr)
+\end{split}
+\end{equation}
+
+So the whole ELBO is implemented as
+\begin{equation}
+\begin{split}
+ELBO_{WSBM}(\Lambda) = \sum_{ij \atop i \neq j} \biggl( &- \frac{L}{N (N - 1)} D_{KL} \left(q(\v{\theta})||p(\v{\theta})\right)\\
+\quad &- \frac{L}{N (N - 1)} D_{KL}\left(q(\v{B})||p(\v{B})\right) \\
+\quad &- \frac{L}{N (N - 1)} D_{KL}\left(q(\v{\mu})||p(\v{\mu})\right) \\
+\quad &- \frac{L}{N (N - 1)} D_{KL}\left(q(\v{\tau})||p(\v{\tau})\right) \\
+\quad &+ \frac{L}{N - 1}\Phi(i)\\
+\quad &+ \Psi(i)\\
+\quad &+ \Omega(i,j)   \biggr)
+\end{split}
+\end{equation} 
+
+\subsection{Degree-corrected stochastic block models for weighted graphs}
+This model combines part those were already seen in DCSBM and WSBM.\\
+
+The join probability of WDCSBM will have the following form:
+\begin{equation}
+\begin{split}
+p(\v{A}, \v{c}, \v{\theta}, \v{B}, \v{\delta}, \v{w})
+&= p(\v{\theta}) p(\v{B}) p(\v{\delta}) p(\v{w}) p( \v{c} | \v{\theta} ) p( \v{A} | \v{c}, \v{B} , \v{\delta}) \\
+&= p(\v{\theta}) \prod_{c,c'} p(B_{c c'}) \prod_{c,c'} p(\mu_{c c'}) \prod_{c,c'} p(\tau_{c c'}) \prod_{i} p(\delta_i) \prod_i p(c_i | \v{\theta})\\
+& \quad \cdot  \prod_{ij} p(A_{ij} | B_{c_i c_j}, \delta_i, \delta_j) \prod_{ij} p(w_{ij} | \mu_{c_i c_j}, \tau_{c_i c_j})\\
+&= p(\v{\theta}) \prod_{c,c'} p(B_{c c'}) \prod_{c,c'} p(\mu_{c c'}) \prod_{c,c'} p(\tau_{c c'}) \prod_{i} p(\delta_i) \prod_i \theta_{c_i}\\
+& \quad \cdot \prod_{ij} (\sigma(\delta_i + \delta_j) \cdot B_{c_i,c_j})^{A_{ij}} (1 - (\sigma(\delta_i + \delta_j) \cdot B_{c_i,c_j}))^{1 - {A_{ij}}} \\
+& \quad \cdot\prod_{ij} p(w_{ij} | \mu_{c_i c_j}, \tau_{c_i c_j}),
+\end{split}
+\end{equation}
+
+Its variational distribution will be
+\begin{equation}
+\begin{split}
+q(\v{c}, \v{\theta}, \v{B},\v{\delta}, \v{\mu}, \v{\tau})
+&= \prod_i q(c_i) q(\v{\theta}) \prod_{c,c'} q(B_{cc'}) \prod_i q(\delta_i) \prod_{c,c'} q(\mu_{cc'}) \prod_{c,c'} q(\tau_{cc'})\; ,
+\end{split}
+\end{equation}
+
+and the ELBO
+
+\begin{equation}
+\begin{aligned}
+& \E_{q(\v{c}, \v{\theta}, \v{B}, \v{\delta}, \v{\mu}, \v{\tau})}[\log p(\v{A}, \v{c}, \v{\theta}, \v{B}, \v{\delta}, \v{\mu}, \v{\tau})] 
++ H(q(\v{c}, \v{\theta}, \v{B},\v{\delta}, \v{\mu}, \v{\tau})) \\ 
+&= \E_{q(\v{\theta}, \v{B},\v{\delta},  \v{\mu}, \v{\tau})} \Biggl[ 
+\E_{q(\v{c})} \biggl[ \log p(\v{\theta}) 
++ \sum_{cc'} \log p(B_{cc'}) 
++ \sum_i \log p(\delta_i) 
++ \sum_{cc'} \log p(\mu_{cc'}) 
++ \sum_{cc'} \log p(\tau_{cc'})\\
+& \quad + \sum_i \log p(c_i | \v{\theta}) 
++ \sum_{ij} \log p(A_{ij} | B_{c_ic_j}, \delta_i, \delta_j) 
++ \sum_{ij} \log p(w_{ij} | \mu_{c_ic_j}, \tau_{c_ic_j}) \biggm\vert \v{\theta}, \v{B}, \v{\delta}, \v{\mu}, \v{\tau} \biggr] \Biggr]\\ 
+& \quad + H(q(\v{c}, \v{\theta}, \v{B}, \v{\delta}, \v{\mu}, \v{\tau})) \\
+&= \E_{q(\v{\theta}, \v{B},\v{\delta}, \v{\mu}, \v{\tau})}\Biggl[ 
+\log p(\v{\theta}) 
++ \sum_{cc'} \log p(B_{cc'}) 
++ \sum_i \log p(\delta_i) 
++ \sum_{cc'} \log p(\mu_{cc'}) 
++ \sum_{cc'} \log p(\tau_{cc'})\\
+& \quad + \sum_{c_1=1}^K \cdots \sum_{c_N=1}^K \prod_i q(c_i) \left( \sum_i \log p(c_i | \v{\theta}) 
++ \sum_{ij} \log p(A_{ij} | B_{c_ic_j}, \delta_i, \delta_j) 
++ \sum_{ij} \log p(w_{ij} | \mu_{c_ic_j}, \mu_{c_ic_j})\right) \Biggr]\\ 
+& \quad + H(q(\v{c}, \v{\theta}, \v{B},\v{\delta}, \v{\mu}, \v{\tau})) \\
+&= \E_{q(\v{\theta}, \v{B},\v{\delta}, \v{\mu}, \v{\tau})}\Biggl[ 
+\log p(\v{\theta}) 
++ \sum_{cc'} \log p(B_{cc'}) 
++ \sum_i \log p(\delta_i) 
++ \sum_{cc'} \log p(\mu_{cc'}) 
++ \sum_{cc'} \log p(\tau_{cc'})\\
+& \quad + \sum_i \sum_{c_i=1}^K q(c_i) \log p(c_i | \v{\theta}) 
++ \sum_{ij} \sum_{c_i=1}^K \sum_{c_j=1}^K q(c_i) q(c_j) \log p(A_{ij} | B_{c_ic_j}, \delta_i, \delta_j)\\
+& \quad + \sum_{ij} \sum_{c_i=1}^K \sum_{c_j=1}^K q(c_i) q(c_j) \log p(w_{ij} | \mu_{c_ic_j}, \tau_{c_ic_j})\Biggr]\\
+& \quad + \sum_i H(q(c_i)) 
++ H(\v{\theta}) 
++ \sum_{cc'} H(q(B_{cc'})) 
++ \sum_{i} H(q(\delta_i)) 
++ \sum_{cc'} H(q(\mu_{cc'})) 
++ \sum_{cc'} H(q(\tau_{cc'})) \\
+&= \E_{q(\v{\theta}, \v{B},\v{\delta}, \v{\mu}, \v{\tau})}\Biggl[ 
+\log p(\v{\theta}) 
++ \sum_{cc'} \log p(B_{cc'}) 
++ \sum_i \log p(\delta_i) 
++ \sum_{cc'} \log p(\mu_{cc'}) 
++ \sum_{cc'} \log p(\tau_{cc'})\\
+& \quad + \sum_{ij} \sum_{c_i=1}^K \sum_{c_j=1}^K \eta_{c_i} \eta_{c_j} 
+\biggl( A_{ij} \log \bigl(\sigma(\delta_i + \delta_j) \cdot B_{c_ic_j}\bigr) 
++ (1 - A_{ij}) \log \bigl(1 - (\sigma(\delta_i + \delta_j) \cdot B_{c_ic_j})\bigr)\biggr)  \\
+& \quad + \sum_i \sum_{c_i=1}^K \eta_{c_i} \log \theta_{c_i}
++ \sum_{ij} \sum_{c_i=1}^K \sum_{c_j=1}^K \eta_{c_i} \eta_{c_j} 
+\log p(w_{ij} | \mu_{c_ic_j}, \tau_{c_ic_j}) \Biggr]\\ 
+& \quad - \sum_i \sum_{c_i=1}^K \eta_{c_i} \log \eta_{c_i} 
++ \E_{q(\v{\theta})}[- \log q(\v{\theta})]
++ \sum_{cc'} \E_{q(B_{cc'})}[- \log q(B_{cc'})] 
++ \sum_i \E_{q(\delta_i)}[- \log q(\delta_i)]\\
+& \quad + \sum_{cc'} \E_{q(\mu_{cc'})}[- \log q(\mu_{cc'})] 
++ \sum_{cc'} \E_{q(\tau_{cc'})}[- \log q(\tau_{cc'})]\\
+\end{aligned}
+\end{equation}
+
+ELBO for a minibatch is
+\begin{equation}
+\begin{split}
+& \sum_{ij \atop i \neq j} \Biggl[ \frac{1}{N (N - 1)} \E_{q(\v{\theta})}\biggl[
+	\log p(\v{\theta}) - \log q(\v{\theta})\biggr]  \\
+&  \quad + \frac{1}{N (N - 1)} \sum_{c_i=1}^K \sum_{c_j=1}^K  \E_{q(B_{c_ic_j})}\biggl[
+	\log p(B_{c_ic_j}) - \log q(B_{c_ic_j})\biggr] \\
+&  \quad + \frac{1}{N - 1} \sum_i \E_{q(\v{\delta})}\biggl[
+	\log p(\delta_i) - \log q(\delta_i)\biggr] \\
+&  \quad + \frac{1}{N - 1} \sum_{c_i=1}^K \eta_{c_i} \biggl(\E_{q(\v{\theta})}[
+	\log \theta_{c_i}] - \log \eta_{c_i}\biggr) \\
+&  \quad + \sum_{c_i=1}^K \sum_{c_j=1}^K \eta_{c_i} \eta_{c_j}
+	\E_{q(B_{c_ic_j})}\biggl[ A_{ij} \log \bigl(\sigma(\delta_i + \delta_j) \cdot B_{c_ic_j}\bigr) 
+	+ (1 - A_{ij}) \log \bigl(1 - (\sigma(\delta_i + \delta_j) \cdot B_{c_ic_j})\bigr) \biggr]\\
+&  \quad + \frac{1}{N (N - 1)} \sum_{c_i=1}^K \sum_{c_j=1}^K  \E_{q(\mu_{c_ic_j})}\biggl[
+	\log p(\mu_{c_ic_j}) - \log q(\mu_{c_ic_j})\biggr] \\
+&  \quad + \frac{1}{N (N - 1)} \sum_{c_i=1}^K \sum_{c_j=1}^K  \E_{q(\tau_{c_ic_j})}\biggl[
+	\log p(\tau_{c_ic_j}) - \log q(\tau_{c_ic_j})\biggr] \\
+&  \quad + \sum_{c_i=1}^K \sum_{c_j=1}^K \eta_{c_i} \eta_{c_j}
+	\E_{q(\mu_{c_ic_j},\tau_{c_ic_j})}\biggl[ \log p(w_{ij} | \mu_{c_ic_j}, \tau_{c_ic_j}) \biggr]\Biggr]
+\end{split}
+\end{equation}
+and its implementation
+\begin{equation}
+\begin{split}
+ELBO_{WDCSBM}(\Lambda) = \sum_{ij \atop i \neq j} \biggl( &- \frac{L}{N (N - 1)} D_{KL} \left(q(\v{\theta})||p(\v{\theta})\right)\\
+\quad &- \frac{L}{N (N - 1)} D_{KL}\left(q(\v{B})||p(\v{B})\right) \\
+\quad &- \frac{L}{N (N - 1)} D_{KL}\left(q(\v{\mu})||p(\v{\mu})\right) \\
+\quad &- \frac{L}{N (N - 1)} D_{KL}\left(q(\v{\tau})||p(\v{\tau})\right) \\
+\quad &- \frac{L}{N - 1} D_{KL} \left(q(\v{\delta})||p(\v{\delta})\right) \\
+\quad &+ \frac{L}{N - 1}\Phi(i)\\
+\quad &+ \Psi(i)\\
+\quad &+ \widehat{\Omega}(i,j)   \biggr)
+\end{split}
+\end{equation} 
+
+
+\end{document}
