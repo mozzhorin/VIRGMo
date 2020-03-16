@@ -4,7 +4,7 @@ Variational inference for hyperbilic random graph models.
 """
 import time
 #import itertools
-#import warnings
+import warnings
 #import pickle
 #import copy
 #import networkx as nx
@@ -254,26 +254,29 @@ class VI_HRG(torch.nn.Module):
         alpha_q = Gamma(alpha_x_conc, alpha_x_scale.reciprocal())
                     
         loop_count = 0
-#        while True:
-        loop_count += 1
-        R_samples = R_q.rsample([self.num_samples]).squeeze(-1).to(self.device).to(self.dtype)
-        T_samples = T_q.rsample([self.num_samples]).squeeze(-1).to(self.device).to(self.dtype)
-        alpha_samples = alpha_q.rsample([self.num_samples]).squeeze(-1).to(self.device).to(self.dtype)
-    
-        r_q = Radius(r_x_loc.expand(self.num_samples,self.num_nodes), 
-                       r_x_scale.expand(self.num_samples,self.num_nodes), 
-                       R_samples.expand(self.num_nodes,self.num_samples).t())
-        r_samples = r_q.rsample().to(self.device).to(self.dtype)
+        while True:
+            loop_count += 1
+            R_samples = R_q.rsample([self.num_samples]).squeeze(-1).to(self.device).to(self.dtype)
+            T_samples = T_q.rsample([self.num_samples]).squeeze(-1).to(self.device).to(self.dtype)
+            alpha_samples = alpha_q.rsample([self.num_samples]).squeeze(-1).to(self.device).to(self.dtype)
         
-#            alpha_r_i = log1mexp(alpha_samples.expand(L,self.num_samples).t()*r_samples[:,idx1]*2)
-#            alpha_R = log1mexp(alpha_samples*R_samples)
-        alpha_R_ri = alpha_samples.expand(L,self.num_samples).t()*\
-                    (R_samples.expand(L,self.num_samples).t()-r_samples[:,idx1])
-#            if not (bad_tensor(warn_tensor(alpha_r_i, 'alpha_ri')) \
-#                or bad_tensor(warn_tensor(alpha_R, 'alpha_R'))):
-#                break
-#            if loop_count > 100:
-#                raise Exception('Infinite loop!!!')
+            r_q = Radius(r_x_loc.expand(self.num_samples,self.num_nodes), 
+                           r_x_scale.expand(self.num_samples,self.num_nodes), 
+                           R_samples.expand(self.num_nodes,self.num_samples).t())
+            r_samples = r_q.rsample().to(self.device).to(self.dtype)
+        
+            alpha_r_i = log1mexp(alpha_samples.expand(L,self.num_samples).t()*r_samples[:,idx1]*2)
+            alpha_R = log1mexp(alpha_samples*R_samples)
+            alpha_R_ri = - alpha_samples.expand(L,self.num_samples).t()*\
+                        (R_samples.expand(L,self.num_samples).t()-r_samples[:,idx1])
+            q_ri = r_q.log_prob(r_samples)
+            if not (bad_tensor(warn_tensor(alpha_R_ri, 'alpha_R_ri')) \
+                or bad_tensor(warn_tensor(alpha_r_i, 'alpha_ri')) \
+                or bad_tensor(warn_tensor(alpha_R, 'alpha_R')) \
+                or bad_tensor(warn_tensor(q_ri, 'q_ri')) ):
+                break
+            if loop_count > 100:
+                raise Exception('Infinite loop!!!')
         
         phi_q = VonMisesFisher(phi_x_loc, phi_x_scale.unsqueeze(dim=-1))
         phi_samples = phi_q.rsample(self.num_samples).to(self.device).to(self.dtype)#[:,:,:2]
@@ -281,23 +284,32 @@ class VI_HRG(torch.nn.Module):
         #print(phi_i_samples.shape)
         
 
-        arcosh_ = lambda x: (torch.clamp(x, min=1.+self.epsilon) + (torch.clamp(x, min=1.+self.epsilon)**2 - 1 ).sqrt()).log()
-        arcosh = lambda x: (x + (x**2 - 1 + self.epsilon).sqrt()).log()
-        hyperdist = lambda rx,ry,fx,fy: arcosh(rx.cosh()*ry.cosh() - rx.sinh()*ry.sinh()*(fx-fy).cos())
-        hd = lambda rx,ry,fx,fy: rx.cosh()*ry.cosh() - rx.sinh()*ry.sinh()*(fx-fy).cos()
-        cd = lambda rx,ry,fx,fy: warn_tensor(rx.cosh()*ry.cosh(), 'coshs') -\
+#        arcosh_ = lambda x: (torch.clamp(x, min=1.+self.epsilon) + (torch.clamp(x, min=1.+self.epsilon)**2 - 1 ).sqrt()).log()
+#        arcosh = lambda x: (x + (x**2 - 1 + self.epsilon).sqrt()).log()
+#        hyperdist = lambda rx,ry,fx,fy: arcosh(rx.cosh()*ry.cosh() - rx.sinh()*ry.sinh()*(fx-fy).cos())
+#        hd = lambda rx,ry,fx,fy: rx.cosh()*ry.cosh() - rx.sinh()*ry.sinh()*(fx-fy).cos()
+        cosh_dist_warn = lambda rx,ry,fx,fy: warn_tensor(rx.cosh()*ry.cosh(), 'coshs') -\
                 warn_tensor(rx.sinh()*ry.sinh(), 'sinhs')*(fx-fy).cos()
-        p_hd_ = lambda d,R,T: (1.+((d-R)/(2.*T)).exp()).reciprocal()
-        phd = lambda d,R,T: 0.5 + 0.5*((d-R)/(-4.*T)).tanh()
+#        p_hd_ = lambda d,R,T: (1.+((d-R)/(2.*T)).exp()).reciprocal()
+#        phd = lambda d,R,T: 0.5 + 0.5*((d-R)/(-4.*T)).tanh()
+        p_approx = lambda c,R,T: (1.+(2*c).pow(1./(2.*T))*(-R/(2.*T)).exp()).reciprocal()
         
-        cosh_dist = cd(warn_tensor(r_samples[:,idx1], 'r_samples_1'), 
+        def p_app_warn(c,R,T):
+            temp1 = (2* warn_tensor(c, 'c')).pow(1./(2.*T))
+#            print(temp1)
+#            print(T)
+            temp2 = (- warn_tensor(R, 'R')/(2.* warn_tensor(T, 'T'))).exp()
+            return (1. + warn_tensor(temp1, 'temp1')*warn_tensor(temp2, 'temp2')).reciprocal()
+        
+        cosh_dist = cosh_dist_warn(warn_tensor(r_samples[:,idx1], 'r_samples_1'), 
                        warn_tensor(r_samples[:,idx2], 'r_samples_2'), 
                        warn_tensor(c2d(phi_samples[:,idx1]), 'phi_samples_1'), 
-                       warn_tensor(c2d(phi_samples[:,idx2]), 'phi_samples_2')) 
-        dist = arcosh_(warn_tensor(cosh_dist,'cosh_dist')) #+self.epsilon
-        p_ = phd(warn_tensor(dist,'dist'), R_samples.expand(L,self.num_samples).t(), T_samples.expand(L,self.num_samples).t())
-        p_dist = torch.clamp(warn_tensor(p_,'p_'), min=self.epsilon, max=1.-self.epsilon)
-        prob_edges = Bernoulli(warn_tensor(p_dist,'p_dist')).log_prob(edges).mean(dim=0)
+                       warn_tensor(c2d(phi_samples[:,idx2]), 'phi_samples_2'))
+#        print(cosh_dist)
+#        dist = arcosh_(warn_tensor(cosh_dist,'cosh_dist')) #+self.epsilon
+        p_raw = p_app_warn(warn_tensor(cosh_dist,'cosh_dist'), R_samples.expand(L,self.num_samples).t(), T_samples.expand(L,self.num_samples).t())
+        p_clamped = torch.clamp(warn_tensor(p_raw,'p_raw'), min=self.epsilon, max=1.-self.epsilon)
+        prob_edges = Bernoulli(warn_tensor(p_clamped,'p_clamped')).log_prob(edges).mean(dim=0)
         #print(dist)
         #print('>>', p_dist)
         #E_log_p_dist = p_dist.log().mean(dim=0)
@@ -324,18 +336,24 @@ class VI_HRG(torch.nn.Module):
         
         elbo4 = warn_tensor(prob_edges, 'log_pA').sum()
         if debug: print('Prob_edges  >>', str(elbo4))
-#        elbo5 = 1/self.num_nodes * (alpha_R_ri+alpha_r_i).mean(dim=0).sum() 
-        elbo5 = L/self.num_nodes * (alpha_R_ri).mean(dim=0).sum() 
+        elbo5 = L/self.num_nodes * (alpha_R_ri+alpha_r_i).mean(dim=0).sum()
+#        print(alpha_R_ri)
+#        print(alpha_r_i)
+#        elbo5 = L/self.num_nodes * (alpha_R_ri).mean(dim=0).sum() 
         if debug: print('Alpha_R_ri  >>', str(elbo5)) 
         elbo6 = L/self.num_nodes * alpha_samples.log().mean()
         if debug: print('Alpha       >>', str(elbo6)) 
         elbo7 = - L/self.num_nodes * torch.tensor(np.pi*2).log()
 #        if debug: print('Log(2*pi)   >>', str(elbo7))
-#        elbo8 = - L/self.num_nodes * 2 * alpha_R.mean()
-#        if debug: print('Alpha_R     >>', str(elbo8)) 
-        print(r_q.log_prob(r_samples))
-        elbo9 = - L/self.num_nodes * r_q.log_prob(r_samples)[:,idx1].mean(dim=0).sum()
+        elbo8 = - L/self.num_nodes * 2 * alpha_R.mean()
+        if debug: print('Alpha_R     >>', str(elbo8)) 
+#        print(q_ri)
+        #print(r_samples)
+#        print(r_x_loc, r_x_scale)
+#        print(R_samples)
+        elbo9 = - L/self.num_nodes * q_ri[:,idx1].mean(dim=0).sum()
         if debug: print('P(q_ri)     >>', str(elbo9))
+#        print(phi_q.log_prob(phi_samples))
         elbo10 = - L/self.num_nodes * phi_q.log_prob(phi_samples)[:,idx1].mean(dim=0).sum()
         if debug: print('P(q_phii)   >>', str(elbo10))
         elbo = elbo1+elbo2+elbo3+elbo4+elbo5+elbo6+elbo7+elbo9+elbo10 

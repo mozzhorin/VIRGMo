@@ -177,7 +177,7 @@ p_hd = lambda rx,ry,fx,fy,R,T: 1/(1+((hyperdist(rx,ry,fx,fy)-R)/(2*T)).exp())
 undirect = lambda A: A.triu(diagonal=1) + A.triu(diagonal=1).t()
 
 # https://cran.r-project.org/web/packages/Rmpfr/vignettes/log1mexp-note.pdf
-log1mexp = lambda a: torch.where(a>torch.tensor(2.).log(),
+log1mexp = lambda a: torch.where(a>torch.tensor(2.).to(a.dtype).log(),
                                 torch.log1p(-torch.exp(-a)),
                                 torch.log(-torch.expm1(-a)))
 
