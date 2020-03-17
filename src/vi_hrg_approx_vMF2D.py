@@ -89,6 +89,7 @@ class VI_HRG(torch.nn.Module):
         self.init_values = init_values
         self.dtype = f64
         self.epsilon = 1e-12  # Keeps some params away from extream values
+        self.max_cosh = 1e+6
         if device is not None:
             self.device = device
         else:
@@ -133,7 +134,7 @@ class VI_HRG(torch.nn.Module):
             rs_scale = self.init_values['rs_scale']
             
         if self.init_values['phis_loc'] is None:
-            phis_loc = torch.rand([self.num_nodes,3])
+            phis_loc = torch.rand([self.num_nodes,2])
         else:
             phis_loc = self.init_values['phis_loc']
             
@@ -295,19 +296,21 @@ class VI_HRG(torch.nn.Module):
         p_approx = lambda c,R,T: (1.+(2*c).pow(1./(2.*T))*(-R/(2.*T)).exp()).reciprocal()
         
         def p_app_warn(c,R,T):
-            temp1 = (2* warn_tensor(c, 'c')).pow(1./(2.*T))
-#            print(temp1)
+            temp1 = (2* warn_tensor(c, 'c')).pow(1./(2.*warn_tensor(T, 'T')))
+            temp1_ = torch.where(torch.isnan(temp1), torch.tensor(np.inf).expand(temp1.shape).to(self.dtype), temp1)
+#            print(c)
 #            print(T)
             temp2 = (- warn_tensor(R, 'R')/(2.* warn_tensor(T, 'T'))).exp()
-            return (1. + warn_tensor(temp1, 'temp1')*warn_tensor(temp2, 'temp2')).reciprocal()
+            return (1. + warn_tensor(temp1_, 'temp1_')*warn_tensor(temp2, 'temp2')).reciprocal()
         
         cosh_dist = cosh_dist_warn(warn_tensor(r_samples[:,idx1], 'r_samples_1'), 
                        warn_tensor(r_samples[:,idx2], 'r_samples_2'), 
                        warn_tensor(c2d(phi_samples[:,idx1]), 'phi_samples_1'), 
                        warn_tensor(c2d(phi_samples[:,idx2]), 'phi_samples_2'))
+        cd_clamped = torch.clamp(cosh_dist, min=self.epsilon, max=self.max_cosh)
 #        print(cosh_dist)
 #        dist = arcosh_(warn_tensor(cosh_dist,'cosh_dist')) #+self.epsilon
-        p_raw = p_app_warn(warn_tensor(cosh_dist,'cosh_dist'), R_samples.expand(L,self.num_samples).t(), T_samples.expand(L,self.num_samples).t())
+        p_raw = p_app_warn(warn_tensor(cd_clamped,'cd_clamped'), R_samples.expand(L,self.num_samples).t(), T_samples.expand(L,self.num_samples).t())
         p_clamped = torch.clamp(warn_tensor(p_raw,'p_raw'), min=self.epsilon, max=1.-self.epsilon)
         prob_edges = Bernoulli(warn_tensor(p_clamped,'p_clamped')).log_prob(edges).mean(dim=0)
         #print(dist)
@@ -347,16 +350,17 @@ class VI_HRG(torch.nn.Module):
 #        if debug: print('Log(2*pi)   >>', str(elbo7))
         elbo8 = - L/self.num_nodes * 2 * alpha_R.mean()
         if debug: print('Alpha_R     >>', str(elbo8)) 
-        print(q_ri)
+#        print(q_ri[:,idx1])
         #print(r_samples)
 #        print(r_x_loc, r_x_scale)
 #        print(R_samples)
         elbo9 = - L/self.num_nodes * q_ri[:,idx1].mean(dim=0).sum()
         if debug: print('P(q_ri)     >>', str(elbo9))
-        print(phi_q.log_prob(phi_samples))
-        elbo10 = - L/self.num_nodes * phi_q.log_prob(phi_samples)[:,idx1].mean(dim=0).sum()
+        q_phi_entropy = phi_q.entropy()[idx1]
+#        print(q_phi_entropy)        
+        elbo10 = L/self.num_nodes * q_phi_entropy.sum()
         if debug: print('P(q_phii)   >>', str(elbo10))
-        elbo = elbo1+elbo2+elbo3+elbo4+elbo5+elbo6+elbo7+elbo9+elbo10 
+        elbo = elbo1+elbo2+elbo3+elbo4+elbo5+elbo6+elbo7+elbo8+elbo9+elbo10 
         if debug: print('ELBO >>>>', str(elbo))
         return elbo
         
