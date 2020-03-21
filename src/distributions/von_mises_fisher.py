@@ -136,8 +136,11 @@ class VonMisesFisher(torch.distributions.Distribution):
     def _log_normalization(self):
         output = - ((self.__m / 2 - 1) * torch.log(self.scale) - (self.__m / 2) * math.log(2 * math.pi) - (
             self.scale + torch.log(ive(self.__m / 2 - 1, self.scale)).to(self.dtype)))
-        #return output
-        return output.view(*(output.shape[:-1]))
+        #
+        try:
+            return output.view(*(output.shape[:-1]))
+        except:
+            return output  # tweek for 2D
 
 
 @register_kl(VonMisesFisher, HypersphericalUniform)

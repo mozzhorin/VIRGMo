@@ -1,5 +1,9 @@
 \documentclass{article}
 
+\usepackage{blindtext}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{bm}
@@ -71,7 +75,7 @@ q(\v{r}, \v{\phi}, R,T,\alpha)
 \end{equation}
 
 %\pagebreak
-\subsection{ELBO}
+\section{ELBO}
 \begin{equation}
 \begin{aligned}
 & \E_{q(\v{r}, \v{\phi}, R,T,\alpha)}[\log p(\v{A}, \v{r}, \v{\phi}, R,T,\alpha)] + H(q(\v{r}, \v{\phi}, R,T,\alpha)) \\ 
@@ -88,7 +92,7 @@ q(\v{r}, \v{\phi}, R,T,\alpha)
 \end{aligned}
 \end{equation}
 
-\subsection{ELBO for a minibatch}
+\section{ELBO for a minibatch}
 \begin{equation}
 \begin{split}
 & \sum_{ij \atop i \neq j} \Biggl[ \frac{1}{N (N - 1)} \E_{q(R)}\biggl[\log p(R) - \log q(R)\biggr]  \\
@@ -102,7 +106,7 @@ A_{ij} \log \bigl(p(dist(i,j))\bigr) + (1-A_{ij}) \log \bigl(1 - p(dist(i,j))\bi
 \end{split}
 \end{equation}
 
-\subsubsection{Algorithm implementation}
+\subsection{Algorithm implementation}
 
 Considering $R \geq 0$, $\alpha \geq 0$, $ 0 < T \leq 1$, $0 \leq r_i \leq R$ and $0 \leq \phi_i \leq 2\pi$, we assume that
 \begin{align*}
@@ -116,6 +120,7 @@ Further, we choose for $q(r_i)$ a $\mathtt{Radius}(\mu, \sigma, R)$ distribution
 
 The choose of $q(\phi_i)$ is more complicated because it should be a spherical two-dimensional (in Cartesian coordinates) distribution. Ideally, we would take a wrapped normal but calculating its Jacobian troublesome, so we adapted a $\mathtt{von Mises-Fisher}$ distribution from \cite{vmf}. This implementation generally utilize rejection sampling for multi-dimensional distributions but for three-dimensional case a transformation of a uniform distribution is used. Encountering some problems with rejection sampling, which can be very slow, we chosen a three-dimensional variant projected on a two-dimensional plane.\\
 
+\subsubsection*{Numerical stability}
 For numerical stability we used \verb|log1mexp()| function defined in \cite{log1mexp}. This allows us to rewrite hyperbolic functions as
 \begin{equation}
 \begin{split}
@@ -136,9 +141,51 @@ Then from (2)
 \begin{equation}
 \begin{split}
 \log \big( p(r_i, \phi_i | R,T,\alpha) \big) &= \log \Biggl( \frac{\alpha \sinh (\alpha r_i)}{2 \pi (\cosh (\alpha R) -1)} \Biggr)\\
-&= \log( \alpha ) - \log(2\pi) + \alpha (r-R) + log1mexp (2 \alpha r) - 2 log1mexp (\alpha R)
+&= \log( \alpha ) - \log(2\pi) + \alpha (r-R) + log1mexp (2 \alpha r) - 2\cdot log1mexp (\alpha R)
 \end{split}
 \end{equation}
+
+\subsubsection*{Approximation for $\cosh^{-1}$}
+The inverted $\cosh$ operation not only requires additional computation time but also cause some numerical instability.\\
+
+Consider the hyperbolic distance
+$$dist(i,j) = \cosh^{-1}(D)$$
+where
+$$ D(i,j) = \cosh(r_i) \cosh(r_j) - \sinh(r_i) \sinh(r_j) \cos(\phi_i - \phi_j)$$
+
+Observe that for $y \gg 1$:
+\begin{equation}
+\begin{split}
+\cosh^{-1}(y):= \log(y + \sqrt{y^2-1}) \approx \log(2y)
+\end{split}
+\end{equation}
+
+That allows us to approximate the distance as $dist(i,j) \approx \log(2D)$. It will bound the true distance from below and will be quite precise for large distances. Observe however that if we plugin the approximation into the shifted sigmoid, appears in a region, where the sigmoid is near constant anyhow:
+
+\begin{equation}
+\begin{split}
+p(dist(i,j))^{-1} &= 1 + \exp \bigg(\frac{\cosh^{-1}(D)}{2T}\bigg) \cdot \exp \bigg(\frac{-R}{2T}\bigg)\\
+& \approx 1 + \big( 2D \big)^{1/(2T)}\cdot \exp \bigg(\frac{-R}{2T}\bigg)
+\end{split}
+\end{equation}
+
+This solution is also not perfect. During the initialization or the further learning process $T$ can take a very small values, which can push the distance to an infinity and produce NaN values. The growth of $D$ can have the same consequences as well as $D=0$, that is why we have to clamp $D$. Moreover, clamping $p(dist(i,j))$ in the interval $(0,1)$ is also practical. 
+
+\subsubsection*{The result optimization metric}
+
+\begin{equation}
+\begin{split}
+ELBO_{HRG}(\Lambda) = &- \frac{L}{N^2} D_{KL} \left(q(R)||p(R)\right)\\
+\quad &- \frac{L}{N^2} D_{KL} \left(q(T)||p(T)\right)\\
+\quad &- \frac{L}{N^2} D_{KL} \left(q(\alpha)||p(\alpha)\right)\\
+\quad & + \sum_{i,j \in \Lambda }\E_{q( R,T,\alpha)} \Biggl[ 
+\E_{q(r_i, \phi_i)} \biggl[ 
+A_{ij} \log \bigl(p(dist(i,j))\bigr) + (1-A_{ij}) \log \bigl(1 - p(dist(i,j))\bigr)  \biggm\vert R,T,\alpha \biggr] \Biggr]\\
+\quad &+ \frac{L}{N^2} \sum_{i \in \Lambda} \E_{q(r_i, \alpha)} \bigl[ \alpha (r_i-R) + log1mexp (2 \alpha r_i) \bigr]\\
+\quad &+ \frac{L}{N^2} \sum_{i \in \Lambda} \E_{q(R, \alpha)} \bigl[ \log( \alpha ) - \log(2\pi) - 2\cdot log1mexp (\alpha R) \bigr]\\
+\quad &- \frac{L}{N^2} \sum_{i \in \Lambda} \biggl(\E_{q(r_i)} \biggl[\log q(r_i) \biggr] + \E_{q(\phi_i)} \biggl[\log q(\phi_i) \biggr] \biggr) 
+\end{split}
+\end{equation} 
 
 \begin{thebibliography}{}
 	\bibitem{vmf}

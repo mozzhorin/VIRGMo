@@ -4,7 +4,7 @@ Variational inference for hyperbilic random graph models.
 """
 import time
 #import itertools
-import warnings
+#import warnings
 #import pickle
 #import copy
 #import networkx as nx
@@ -17,10 +17,9 @@ from torch.distributions.bernoulli import Bernoulli
 from torch.distributions.beta import Beta
 #from torch.distributions.normal import Normal
 from torch.distributions.log_normal import LogNormal
-from torch.distributions.gamma import Gamma
 from torch.utils.data import Dataset, DataLoader
 from torch.distributions.kl import kl_divergence
-from utils import c2d, bad_tensor, warn_tensor, log1mexp, unit_circle, cosh_dist, p_approx
+from utils import diriKL, normKL, c2d, bad_tensor, warn_tensor#, hyperdist, p_hd
 from graph_models import EdgesDataset, HRG
 
 from distributions.von_mises_fisher import VonMisesFisher
@@ -36,19 +35,15 @@ class VI_HRG(torch.nn.Module):
     
     num_nodes (int): number of nodes N
     
-    rs_loc (torch.Tensor, size: N): posterior location of r-coordinate of each node.
-    rs_scale (torch.Tensor, size: N): posterior scale of r-coordinate of each node.
-    phis_loc (torch.Tensor, size: N*2): posterior location of phi-coordinate of each node.
-    phis_scale (torch.Tensor, size: N): posterior scale of phi-coordinate of each node.
-    R_conc (torch.Tensor, size: 1): posterior concentration of R.
-    R_scale (torch.Tensor, size: 1): posterior scale of R.
-    alpha_conc (torch.Tensor, size: 1): posterior concentration of alpha.
-    alpha_scale (torch.Tensor, size: 1): posterior scale of alpha.
+    rs (torch.Tensor, size: N*2): posterior r-coordinate of each node.
+    phis (torch.Tensor, size: N*2): posterior phi-coordinate of each node.
+    R (torch.Tensor, size: 2): posterior R.
+    alpha (torch.Tensor, size: 2): posterior alpha.
     T (torch.Tensor, size: 2): posterior T.
     
     R_p (torch.Tensor, size: 2): prior R.
     alpha_p (torch.Tensor, size: 2): prior alpha.
-    T_p (torch.Tensor, size: 2): prior T. 
+    T_p (torch.Tensor, size: 2): prior T.
     
     
     N = 75
@@ -72,10 +67,10 @@ class VI_HRG(torch.nn.Module):
                               'rs_scale':None, 
                               'phis_loc':None,
                               'phis_scale':None, 
-                              'R_conc':None,
+                              'R_loc':None,
                               'R_scale':None, 
                               'T':None,
-                              'alpha_conc':None,
+                              'alpha_loc':None,
                               'alpha_scale':None},
                  device=None):
         ''' Initialize the model.
@@ -83,7 +78,6 @@ class VI_HRG(torch.nn.Module):
         ARGUMENTS:
         
         num_nodes (int): number of nodes N
-        num_samples (int): number of samples
         priors (dict of torch.float): priors
         init_values (dict of torch.float): initial values of the variational 
             distribution's parameters.
@@ -94,7 +88,6 @@ class VI_HRG(torch.nn.Module):
         self.init_values = init_values
         self.dtype = f64
         self.epsilon = 1e-12  # Keeps some params away from extream values
-        self.max_cosh = 1e+6
         if device is not None:
             self.device = device
         else:
@@ -106,7 +99,7 @@ class VI_HRG(torch.nn.Module):
         # default values
         
         if priors['R_p'] is None:
-            R_p = torch.tensor([10., 1.]).to(self.device).to(self.dtype)
+            R_p = torch.tensor([0., 1.]).to(self.device).to(self.dtype)
         else:
             R_p = priors['R_p'].to(self.device).to(self.dtype) 
             
@@ -116,7 +109,7 @@ class VI_HRG(torch.nn.Module):
             T_p = priors['T_p'].to(self.device).to(self.dtype)
         
         if priors['alpha_p'] is None:
-            alpha_p = torch.tensor([1., 1.]).to(self.device).to(self.dtype)
+            alpha_p = torch.tensor([0., 1.]).to(self.device).to(self.dtype)
         else:
             alpha_p = priors['alpha_p'].to(self.device).to(self.dtype)
             
@@ -139,7 +132,7 @@ class VI_HRG(torch.nn.Module):
             rs_scale = self.init_values['rs_scale']
             
         if self.init_values['phis_loc'] is None:
-            phis_loc = torch.rand([self.num_nodes,2])
+            phis_loc = torch.rand([self.num_nodes,3])
         else:
             phis_loc = self.init_values['phis_loc']
             
@@ -148,10 +141,10 @@ class VI_HRG(torch.nn.Module):
         else:
             phis_scale = self.init_values['phis_scale']
             
-        if self.init_values['R_conc'] is None:
-            R_conc = torch.rand()
+        if self.init_values['R_loc'] is None:
+            R_loc = torch.rand()
         else:
-            R_conc = self.init_values['R_conc']
+            R_loc = self.init_values['R_loc']
             
         if self.init_values['R_scale'] is None:
             R_scale = torch.rand()
@@ -163,10 +156,10 @@ class VI_HRG(torch.nn.Module):
         else:
             T = self.init_values['T']
             
-        if self.init_values['alpha_conc'] is None:
-            alpha_conc = torch.rand()
+        if self.init_values['alpha_loc'] is None:
+            alpha_loc = torch.rand()
         else:
-            alpha_conc = self.init_values['alpha_conc']
+            alpha_loc = self.init_values['alpha_loc']
             
         if self.init_values['alpha_scale'] is None:
             alpha_scale = torch.rand()
@@ -177,10 +170,10 @@ class VI_HRG(torch.nn.Module):
         self.rs_scale = torch.nn.Parameter(rs_scale.to(self.device).to(self.dtype))
         self.phis_loc = torch.nn.Parameter(phis_loc.to(self.device).to(self.dtype))
         self.phis_scale = torch.nn.Parameter(phis_scale.to(self.device).to(self.dtype))
-        self.R_conc = torch.nn.Parameter(R_conc.to(self.device).to(self.dtype))
+        self.R_loc = torch.nn.Parameter(R_loc.to(self.device).to(self.dtype))
         self.R_scale = torch.nn.Parameter(R_scale.to(self.device).to(self.dtype))
         self.T = torch.nn.Parameter(T.to(self.device).to(self.dtype))
-        self.alpha_conc = torch.nn.Parameter(alpha_conc.to(self.device).to(self.dtype))
+        self.alpha_loc = torch.nn.Parameter(alpha_loc.to(self.device).to(self.dtype))
         self.alpha_scale = torch.nn.Parameter(alpha_scale.to(self.device).to(self.dtype))
         
         
@@ -188,12 +181,12 @@ class VI_HRG(torch.nn.Module):
         ''' Return constrained posterior parameters. '''
         return (self.rs_loc,
                 torch.exp(self.rs_scale),
-                unit_circle(self.phis_loc),
+                self.phis_loc,
                 torch.exp(self.phis_scale),
-                torch.exp(self.R_conc),
+                self.R_loc,
                 torch.exp(self.R_scale),
                 torch.exp(self.T),
-                torch.exp(self.alpha_conc),
+                self.alpha_loc,
                 torch.exp(self.alpha_scale))
                 
 #    def omega_approx(self, R_x, T_x, alpha_x, idx1, idx2, weights):
@@ -235,7 +228,7 @@ class VI_HRG(torch.nn.Module):
 #               + (1.-edges).unsqueeze(-1).unsqueeze(-1)*p_dist_                  
 #        return torch.mul(log_pA, temp).sum()
                 
-    def elbo(self, idx1, idx2, weights, debug=False):
+    def elbo(self, idx1, idx2, weights):
         ''' Return evidence lower bound (ELBO) calculated for a nodes batch 
         of size L; also the loss for the training.
         
@@ -248,111 +241,90 @@ class VI_HRG(torch.nn.Module):
         '''
         
         L = len(weights)   # Batch size
-        r_x_loc, r_x_scale, phi_x_loc, phi_x_scale, R_x_conc, R_x_scale, T_x, \
-            alpha_x_conc, alpha_x_scale = self.constrained_params() 
+        r_x_loc, r_x_scale, phi_x_loc, phi_x_scale, R_x_loc, R_x_scale, T_x, \
+            alpha_x_loc, alpha_x_scale = self.constrained_params() 
         
         edges = torch.where(weights>0, 
                             torch.ones(weights.size()).to(self.device).to(self.dtype), 
                             torch.zeros(weights.size()).to(self.device).to(self.dtype))
         
-        R_q = Gamma(R_x_conc, R_x_scale.reciprocal())
+        R_q = LogNormal(R_x_loc, R_x_scale)
         T_q = Beta(T_x[0], T_x[1])
-        alpha_q = Gamma(alpha_x_conc, alpha_x_scale.reciprocal())
-        
-        # Because of numerical instability we put the sampling of several parameters
-        # into a loop, wich can be exited only if the samping produces 'stable' results             
+        alpha_q = LogNormal(alpha_x_loc, alpha_x_scale)
+                    
         loop_count = 0
         while True:
             loop_count += 1
-            R_samples = R_q.rsample([self.num_samples]).squeeze(-1).to(self.device).to(self.dtype)
-            T_samples = T_q.rsample([self.num_samples]).squeeze(-1).to(self.device).to(self.dtype)
-            alpha_samples = alpha_q.rsample([self.num_samples]).squeeze(-1).to(self.device).to(self.dtype)
+            R_samples = R_q.rsample([L]).squeeze(-1).to(self.device).to(self.dtype)
+            T_samples = T_q.rsample([L]).squeeze(-1).to(self.device).to(self.dtype)
+            alpha_samples = alpha_q.rsample([L]).squeeze(-1).to(self.device).to(self.dtype)
         
-            r_q = Radius(r_x_loc.expand(self.num_samples,self.num_nodes), 
-                           r_x_scale.expand(self.num_samples,self.num_nodes), 
-                           R_samples.expand(self.num_nodes,self.num_samples).t())
-            r_samples = r_q.rsample().to(self.device).to(self.dtype)
-        
-            l1e_a_ri = log1mexp(alpha_samples.expand(L,self.num_samples).t()*r_samples[:,idx1]*2)
-            l1e_a_R = log1mexp(alpha_samples*R_samples)
-            a_R_ri = - alpha_samples.expand(L,self.num_samples).t()*\
-                        (R_samples.expand(L,self.num_samples).t()-r_samples[:,idx1])
-            r_q_lp = r_q.log_prob(r_samples)
-            if not (bad_tensor(warn_tensor(a_R_ri, 'a_R_ri')) \
-                or bad_tensor(warn_tensor(l1e_a_ri, 'l1e_a_ri')) \
-                or bad_tensor(warn_tensor(l1e_a_R, 'l1e_a_R')) \
-                or bad_tensor(warn_tensor(r_q_lp, 'r_q_lp')) ):
+            r_i_q = Radius(r_x_loc[idx1], r_x_scale[idx1], R_samples)
+            r_i_samples = r_i_q.rsample([self.num_samples]).to(self.device).to(self.dtype)
+            r_j_q = Radius(r_x_loc[idx2], r_x_scale[idx2], R_samples)
+            r_j_samples = r_j_q.rsample([self.num_samples]).to(self.device).to(self.dtype)
+            alpha_r_i = (alpha_samples*r_i_samples).sinh().log()
+            alpha_R = ((alpha_samples*R_samples).cosh()-1).log()
+            if not (bad_tensor(warn_tensor(alpha_r_i, 'alpha_ri')) \
+                or bad_tensor(warn_tensor(alpha_R, 'alpha_R'))):
                 break
-            if loop_count > 100:
+            if loop_count > 1000:
                 raise Exception('Infinite loop!!!')
         
-        phi_q = VonMisesFisher(phi_x_loc, phi_x_scale.unsqueeze(dim=-1))
-        phi_samples = phi_q.rsample(self.num_samples).to(self.device).to(self.dtype)        
+        phi_i_q = VonMisesFisher(phi_x_loc[idx1], phi_x_scale[idx1].unsqueeze(dim=-1))
+        phi_i_samples = phi_i_q.rsample(self.num_samples).to(self.device).to(self.dtype)#[:,:,:2]
+        phi_j_q = VonMisesFisher(phi_x_loc[idx2], phi_x_scale[idx2].unsqueeze(dim=-1))
+        phi_j_samples = phi_j_q.rsample(self.num_samples).to(self.device).to(self.dtype)#[:,:,:2]
+        #print(phi_i_samples.shape)
 
-#        arcosh_ = lambda x: (torch.clamp(x, min=1.+self.epsilon) + (torch.clamp(x, min=1.+self.epsilon)**2 - 1 ).sqrt()).log()
-#        arcosh = lambda x: (x + (x**2 - 1 + self.epsilon).sqrt()).log()
-#        hyperdist = lambda rx,ry,fx,fy: arcosh(rx.cosh()*ry.cosh() - rx.sinh()*ry.sinh()*(fx-fy).cos())
-#        hd = lambda rx,ry,fx,fy: rx.cosh()*ry.cosh() - rx.sinh()*ry.sinh()*(fx-fy).cos()
-#        cosh_dist_warn = lambda rx,ry,fx,fy: warn_tensor(rx.cosh()*ry.cosh(), 'coshs') -\
-#                warn_tensor(rx.sinh()*ry.sinh(), 'sinhs')*(fx-fy).cos()
-##        p_hd_ = lambda d,R,T: (1.+((d-R)/(2.*T)).exp()).reciprocal()
-##        phd = lambda d,R,T: 0.5 + 0.5*((d-R)/(-4.*T)).tanh()
-#        p_approx = lambda c,R,T: (1.+(2*c).pow(1./(2.*T))*(-R/(2.*T)).exp()).reciprocal()      
+        arcosh = lambda x: (x + (x**2 - 1).sqrt()).log()
+        hyperdist = lambda rx,ry,fx,fy: arcosh(rx.cosh()*ry.cosh() - rx.sinh()*ry.sinh()*(fx-fy).cos())
+        p_hd_ = lambda d,R,T: (1+((d-R)/(2*T)).exp()).reciprocal()
+        phd = lambda d,R,T: 0.5 + 0.5*(-4*(d-R)/T).tanh()
         
-        cd_raw = cosh_dist(r_samples[:,idx1], r_samples[:,idx2], 
-                           c2d(phi_samples[:,idx1]), c2d(phi_samples[:,idx2]))
-        cd_clamped = torch.clamp(cd_raw, min=self.epsilon, max=self.max_cosh)
-        
-#        print(cosh_dist)
-#        dist = arcosh_(warn_tensor(cosh_dist,'cosh_dist')) #+self.epsilon
-        p_raw = p_approx(cd_clamped, 
-                         R_samples.expand(L,self.num_samples).t(), 
-                         T_samples.expand(L,self.num_samples).t())
-        p_clamped = torch.clamp(warn_tensor(p_raw,'p_raw'), min=self.epsilon, max=1.-self.epsilon)
-        
-        prob_edges = Bernoulli(p_clamped).log_prob(edges).mean(dim=0)
-        
-        elbo1 = - L/self.num_nodes**2 * \
-            kl_divergence(R_q, Gamma(self.R_p[0], self.R_p[1].reciprocal())).double()
-        if debug: print('-D_kl(R)    >>', str(elbo1))
+        dist = hyperdist(r_i_samples, r_j_samples, c2d(phi_i_samples), c2d(phi_j_samples))
+        p_ = phd(dist, R_samples, T_samples)
+        p_dist = torch.clamp(p_, min=self.epsilon, max=1.-self.epsilon)
+        prob_edges = Bernoulli(p_dist).log_prob(edges).mean(dim=0)
+        #print(dist)
+        #print('>>', p_dist)
+        #E_log_p_dist = p_dist.log().mean(dim=0)
+        #print('>>>',E_log_p_dist)
+        #E_log_p_dist_ = (1-p_dist).log().mean(dim=0)
+        #log_pA = edges*E_log_p_dist + (1.-edges)*E_log_p_dist_
+        #print('log_pA',log_pA)
+        # Calculate and sum different parts of ELBO
+        count = 0
+        elbo = 0
+        #elbo = -1/self.num_nodes**2 * normKL(R_x, self.R_p).double()
+        elbo -= 1/self.num_nodes**2 * \
+            kl_divergence(R_q, LogNormal(self.R_p[0], self.R_p[1])).double()
+#        print('ELBO', str(count), '>>', str(elbo)); count +=1
         #elbo -= 1/self.num_nodes**2 * normKL(alpha_x, self.alpha_p).double()
-        elbo2 = - L/self.num_nodes**2 * \
-            kl_divergence(alpha_q, Gamma(self.alpha_p[0], self.alpha_p[1].reciprocal())).double()
-        if debug: print('-D_kl(alpha)>>', str(elbo2))
+        elbo -= 1/self.num_nodes**2 * \
+            kl_divergence(alpha_q, LogNormal(self.alpha_p[0], self.alpha_p[1])).double()
+#        print('ELBO', str(count), '>>', str(elbo)); count +=1
         #elbo -= 1/self.num_nodes**2 * diriKL(T_x, self.T_p).double()
-        elbo3 = - L/self.num_nodes**2 * \
+        elbo -= 1/self.num_nodes**2 * \
             kl_divergence(T_q, Beta(self.T_p[0], self.T_p[1])).double()
-        if debug: print('-D_kl(T)    >>', str(elbo3)) 
+#        print('ELBO', str(count), '>>', str(elbo)); count +=1
+        elbo += warn_tensor(prob_edges, 'log_pA').sum()
+#        print('ELBO', str(count), '>>', str(elbo)); count +=1
         
-        elbo4 = warn_tensor(prob_edges, 'log_pA').sum()
-        if debug: print('Prob_edges  >>', str(elbo4))
-        elbo5 = L/self.num_nodes**2 * (a_R_ri+l1e_a_ri).mean(dim=0).sum()
-#        print(a_R_ri)
-#        print(l1e_a_ri)
-#        elbo5 = L/self.num_nodes * (a_R_ri).mean(dim=0).sum() 
-        if debug: print('a_R_ri  >>', str(elbo5)) 
-        elbo6 = L/self.num_nodes**2 * alpha_samples.log().mean()
-        if debug: print('Alpha       >>', str(elbo6)) 
-        elbo7 = - L/self.num_nodes**2 * torch.tensor(np.pi*2).log()
-#        if debug: print('Log(2*pi)   >>', str(elbo7))
-        elbo8 = - L/self.num_nodes**2 * 2 * l1e_a_R.mean()
-        if debug: print('l1e_a_R     >>', str(elbo8)) 
-#        print(r_q_lp)
-        #print(r_samples)
-#        print(r_x_loc, r_x_scale)
-#        print(R_samples)
-        elbo9 = - L/self.num_nodes**2 * r_q_lp[:,idx1].mean(dim=0).sum()
-        if debug: print('P(r_q)     >>', str(elbo9))
-        q_phi_entropy = phi_q.entropy()[idx1]
-#        print(q_phi_entropy)        
-        elbo10 = L/self.num_nodes**2 * q_phi_entropy.sum()
-        if debug: print('P(q_phii)   >>', str(elbo10))
-        
-        elbo = elbo1+elbo2+elbo3+elbo4+elbo5+elbo6+elbo7+elbo8+elbo9+elbo10 
-        if debug: print('ELBO >>>>', str(elbo))
+        elbo += 1/self.num_nodes * alpha_r_i.mean(dim=0).sum() 
+#        print('ELBO', str(count), '>>', str(elbo)); count +=1
+
+        elbo += 1/self.num_nodes * alpha_samples.log().mean()
+#        print('ELBO', str(count), '>>', str(elbo)); count +=1
+        elbo -= 1/self.num_nodes * alpha_R.mean()
+#        print('ELBO', str(count), '>>', str(elbo)); count +=1
+        elbo -= 1/self.num_nodes * r_i_q.log_prob(r_i_samples).mean(dim=0).sum()
+#        print('ELBO', str(count), '>>', str(elbo)); count +=1
+        elbo -= 1/self.num_nodes * phi_i_q.log_prob(phi_i_samples).mean(dim=0).sum()
+#        print('ELBO', str(count), '>>', str(elbo)); count +=1
         return elbo
         
-    def train_(self, epoch_num, debug=False):
+    def train_(self, epoch_num):
         ''' Fit the variational distribution for one epoch.
         
         ARGUMENTS:
@@ -363,7 +335,7 @@ class VI_HRG(torch.nn.Module):
         total_loss = 0
         for idx1, idx2, data in self.dataloader:
             idx1, idx2, data = idx1.to(self.device), idx2.to(self.device), data.to(self.device)
-            loss = - self.elbo(idx1, idx2, data, debug)
+            loss = - self.elbo(idx1, idx2, data)
             self.optimizer.zero_grad()
             loss.backward(retain_graph=False)
             self.optimizer.step()
@@ -377,7 +349,7 @@ class VI_HRG(torch.nn.Module):
         return tl
     
     def train(self, dataloader, optimizer='rmsprop', 
-              lrs=0.1, epochs=10, momentum=None, debug=False):
+              lrs=0.1, epochs=10, momentum=None):
         ''' Fit the variational distribution for a number of epochs.
         
         ARGUMENTS:
@@ -427,7 +399,7 @@ class VI_HRG(torch.nn.Module):
         if isinstance(self.lrs, float) or isinstance(self.lrs, int):
             self.optimizer.lr=self.lrs
             for e in range(self.epochs):
-                   curr_loss = self.train_(epoch_counter, debug)
+                   curr_loss = self.train_(epoch_counter)
                    epoch_counter +=1
                    self.loss_list.append(curr_loss)
         else:
@@ -437,7 +409,7 @@ class VI_HRG(torch.nn.Module):
                 for lr in self.lrs:
                     self.optimizer.lr=lr
                     for e in range(self.epochs):
-                       curr_loss = self.train_(epoch_counter, debug)
+                       curr_loss = self.train_(epoch_counter)
                        epoch_counter +=1
                        self.loss_list.append(curr_loss)
             # If both lrs and epochs are lists, train the model with 
@@ -446,22 +418,9 @@ class VI_HRG(torch.nn.Module):
                 for l in range(len(self.lrs)):
                     self.optimizer.lr=self.lrs[l]
                     for e in range(self.epochs[l]):
-                            curr_loss = self.train_(epoch_counter, debug)
+                            curr_loss = self.train_(epoch_counter)
                             epoch_counter +=1
                             self.loss_list.append(curr_loss)                 
         self.loss_list = torch.tensor(self.loss_list)
         print('>>>>>>>>>>>> Training is finished.\n')
-        
-    def qmean(self):
-        ''' Return mean values of posterior variational distributions.
-        '''
-        r_x_loc, r_x_scale, phi_x_loc, phi_x_scale, R_x_conc, R_x_scale, T_x, \
-            alpha_x_conc, alpha_x_scale = self.constrained_params()
-            
-        R = Gamma(R_x_conc, R_x_scale.reciprocal()).mean.detach()
-        alpha = Gamma(alpha_x_conc, alpha_x_scale.reciprocal()).mean.detach()
-        T = Beta(T_x[0], T_x[1]).mean.detach()
-        rs = Radius(r_x_loc, r_x_scale, R.expand([self.num_nodes])).mean.detach()
-        phis = VonMisesFisher(phi_x_loc, phi_x_scale.unsqueeze(dim=-1)).mean.detach()
-        return rs, phis, R, T, alpha
     

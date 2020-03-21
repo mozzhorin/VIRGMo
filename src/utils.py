@@ -132,6 +132,15 @@ def bad_tensor(tensor):
     variable (str): name of the tensor. 
     '''
     return bool(torch.isnan(tensor).sum() + torch.isinf(tensor).sum())
+
+def p_app_warn(c,R,T):
+    ''' Calculate the approximate probability of an edge in HRG,
+    raise warnings and clean up NaNs. 
+    '''
+    temp1 = (2* warn_tensor(c, 'c')).pow(1./(2.*warn_tensor(T, 'T')))
+    temp1_ = torch.where(torch.isnan(temp1), torch.tensor(np.inf).expand(temp1.shape).to(self.dtype), temp1)
+    temp2 = (- warn_tensor(R, 'R')/(2.* warn_tensor(T, 'T'))).exp()
+    return (1. + warn_tensor(temp1_, 'temp1_')*warn_tensor(temp2, 'temp2')).reciprocal()
     
 def class_compare(eta1, eta2):
     z2 = eta2.argmax(dim=0).float()
@@ -168,13 +177,22 @@ def class_compare(eta1, eta2):
     
     return best_score, z1, best_z2, diff_id.sort().values, best_perm
     
+undirect = lambda A: A.triu(diagonal=1) + A.triu(diagonal=1).t()
+
 arcosh = lambda x: (x + (x**2 - 1).sqrt()).log()
 
 hyperdist = lambda rx,ry,fx,fy: arcosh(rx.cosh()*ry.cosh() - rx.sinh()*ry.sinh()*(fx-fy).cos())
 
 p_hd = lambda rx,ry,fx,fy,R,T: 1/(1+((hyperdist(rx,ry,fx,fy)-R)/(2*T)).exp())
 
-undirect = lambda A: A.triu(diagonal=1) + A.triu(diagonal=1).t()
+cosh_dist = lambda rx,ry,fx,fy: rx.cosh()*ry.cosh()-rx.sinh()*ry.sinh()*(fx-fy).cos()
+
+cosh_dist_warn = lambda rx,ry,fx,fy: warn_tensor(rx.cosh()*ry.cosh(), 'coshs') -\
+                warn_tensor(rx.sinh()*ry.sinh(), 'sinhs')*(fx-fy).cos()
+
+p_approx = lambda c,R,T: (1.+(2*c).pow(1./(2.*T))*(-R/(2.*T)).exp()).reciprocal()
+
+
 
 # https://cran.r-project.org/web/packages/Rmpfr/vignettes/log1mexp-note.pdf
 log1mexp = lambda a: torch.where(a>torch.tensor(2.).to(a.dtype).log(),
@@ -225,4 +243,9 @@ def polar2cart(r, theta):
         Cartesian coordinates    
     """
     return torch.stack((r * theta.cos(), r * theta.sin()), dim=-1).squeeze()
+
+def unit_circle(x):
+    x0, x1 = x.select(-1,0), x.select(-1,1)
+    theta = torch.atan2(x1,x0)
+    return torch.stack((theta.cos(), theta.sin()), dim=-1).squeeze()
     
