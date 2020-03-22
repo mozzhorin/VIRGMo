@@ -326,7 +326,7 @@ class VI_HRG(torch.nn.Module):
         
         elbo4 = warn_tensor(prob_edges, 'log_pA').sum()
         if debug: print('Prob_edges  >>', str(elbo4))
-        elbo5 = L/self.num_nodes**2 * (a_R_ri+l1e_a_ri).mean(dim=0).sum()
+        elbo5 = L/self.num_nodes**3 * (a_R_ri+l1e_a_ri).mean(dim=0).sum()
 #        print(a_R_ri)
 #        print(l1e_a_ri)
 #        elbo5 = L/self.num_nodes * (a_R_ri).mean(dim=0).sum() 
@@ -341,11 +341,11 @@ class VI_HRG(torch.nn.Module):
         #print(r_samples)
 #        print(r_x_loc, r_x_scale)
 #        print(R_samples)
-        elbo9 = - L/self.num_nodes**2 * r_q_lp[:,idx1].mean(dim=0).sum()
+        elbo9 = - L/self.num_nodes**3 * r_q_lp[:,idx1].mean(dim=0).sum()
         if debug: print('P(r_q)     >>', str(elbo9))
         q_phi_entropy = phi_q.entropy()[idx1]
 #        print(q_phi_entropy)        
-        elbo10 = L/self.num_nodes**2 * q_phi_entropy.sum()
+        elbo10 = L/self.num_nodes**3 * q_phi_entropy.sum()
         if debug: print('P(q_phii)   >>', str(elbo10))
         
         elbo = elbo1+elbo2+elbo3+elbo4+elbo5+elbo6+elbo7+elbo8+elbo9+elbo10 

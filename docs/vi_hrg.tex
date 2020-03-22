@@ -178,12 +178,12 @@ This solution is also not perfect. During the initialization or the further lear
 ELBO_{HRG}(\Lambda) = &- \frac{L}{N^2} D_{KL} \left(q(R)||p(R)\right)\\
 \quad &- \frac{L}{N^2} D_{KL} \left(q(T)||p(T)\right)\\
 \quad &- \frac{L}{N^2} D_{KL} \left(q(\alpha)||p(\alpha)\right)\\
-\quad & + \sum_{i,j \in \Lambda }\E_{q( R,T,\alpha)} \Biggl[ 
+\quad & + \sum_{(i,j) \in \Lambda }\E_{q( R,T,\alpha)} \Biggl[ 
 \E_{q(r_i, \phi_i)} \biggl[ 
 A_{ij} \log \bigl(p(dist(i,j))\bigr) + (1-A_{ij}) \log \bigl(1 - p(dist(i,j))\bigr)  \biggm\vert R,T,\alpha \biggr] \Biggr]\\
-\quad &+ \frac{L}{N^2} \sum_{i \in \Lambda} \E_{q(r_i, \alpha)} \bigl[ \alpha (r_i-R) + log1mexp (2 \alpha r_i) \bigr]\\
-\quad &+ \frac{L}{N^2} \sum_{i \in \Lambda} \E_{q(R, \alpha)} \bigl[ \log( \alpha ) - \log(2\pi) - 2\cdot log1mexp (\alpha R) \bigr]\\
-\quad &- \frac{L}{N^2} \sum_{i \in \Lambda} \biggl(\E_{q(r_i)} \biggl[\log q(r_i) \biggr] + \E_{q(\phi_i)} \biggl[\log q(\phi_i) \biggr] \biggr) 
+\quad &+ \frac{L}{N^3} \sum_{(i,j) \in \Lambda} \E_{q(r_i, \alpha)} \bigl[ \alpha (r_i-R) + log1mexp (2 \alpha r_i) \bigr]\\
+\quad &+ \frac{L}{N^2} \quad \E_{q(R, \alpha)} \bigl[ \log( \alpha ) - \log(2\pi) - 2\cdot log1mexp (\alpha R) \bigr]\\
+\quad &- \frac{L}{N^3} \sum_{(i,j) \in \Lambda} \biggl(\E_{q(r_i)} \biggl[\log q(r_i) \biggr] + \E_{q(\phi_i)} \biggl[\log q(\phi_i) \biggr] \biggr) 
 \end{split}
 \end{equation} 
 
