@@ -12,7 +12,7 @@ from torch.distributions.gamma import Gamma
 from torch.distributions.normal import Normal
 from torch.distributions.log_normal import LogNormal
 from torch.distributions.uniform import Uniform
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, IterableDataset
 from utils import *
 
 class Graphon():
@@ -452,6 +452,26 @@ class HRG():
         W = 1/(1+((Md-self.R)/(2*self.T)).exp())
         self.A = self.sample_A(W, directed)
         return self.r, self.theta, self.A
+
+    def generate_W(self, n, r=None, theta=None, directed=False):
+        ''' '''
+        u = Uniform(0.,1.).sample([n]).to(torch.double)
+        if r is None:
+            self.r = self.transform(u)
+        else:
+            self.r = r.double()
+        if theta is None:
+            self.theta = Uniform(0., 2*np.pi).sample([n]).to(torch.double)
+        else:
+            self.theta = theta.double()
+        M = torch.ones([n, n]).to(torch.double)
+        Mr = M * self.r
+        Mt = M * self.theta
+        Md = hyperdist(Mr, Mr.t(), Mt, Mt.t())
+        Md = undirect(Md)
+        W = (Md-self.R)/(2*self.T)
+        
+        return W
     
     def sample_A(self, W, directed=False):
         ''' Sample the adjacence matrix A from Bernoulli distribution
@@ -499,7 +519,7 @@ class HRG():
 
 ###############################################################################
         
-class EdgesDataset(Dataset):
+class EdgesDataset(IterableDataset):
     ''' Dataset class; transformes the given adjacency matrix to 
     a list of edges and allowes to iterate over them.
     
@@ -522,6 +542,7 @@ class EdgesDataset(Dataset):
     '''
     
     def __init__(self, adj_matrix):
+        super(EdgesDataset).__init__()
         assert adj_matrix.size()[0]==adj_matrix.size()[1]
         self.A = adj_matrix
         edges = []
@@ -530,11 +551,14 @@ class EdgesDataset(Dataset):
                 edges.append((i,j,self.A[i,j]))
         self.edges = edges
         
-    def __len__(self):
-        return len(self.edges)
-    
-    def __getitem__(self, idx):
-        return self.edges[idx]
+#    def __len__(self):
+#        return len(self.edges)
+#    
+#    def __getitem__(self, idx):
+#        return self.edges[idx]
+        
+    def __iter__(self):
+        return iter(self.edges)
         
     def get_matrix(self):
         return self.A

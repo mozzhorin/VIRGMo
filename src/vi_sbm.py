@@ -208,7 +208,7 @@ class VI_RG(torch.nn.Module):
             self.optimizer.zero_grad()
             loss.backward(retain_graph=False)
             self.optimizer.step()
-            total_loss += loss
+            total_loss += loss.detach().clone()
             if data.sum()<=0:
                 warnings.warn('Batch is empty! Your graph is to sparse, increase the batch size!')            
         t2 = time.time()

@@ -6,6 +6,7 @@ import torch
 import warnings
 import itertools
 import copy
+import numpy as np
 
 def diriKL(alphas, betas):
     ''' Kullback-Leibler Divergence Between Two Dirichlet Distributions.    
@@ -192,12 +193,28 @@ cosh_dist_warn = lambda rx,ry,fx,fy: warn_tensor(rx.cosh()*ry.cosh(), 'coshs') -
 
 p_approx = lambda c,R,T: (1.+(2*c).pow(1./(2.*T))*(-R/(2.*T)).exp()).reciprocal()
 
-
+logit = lambda x: (x/(1-x)).log()
 
 # https://cran.r-project.org/web/packages/Rmpfr/vignettes/log1mexp-note.pdf
 log1mexp = lambda a: torch.where(a>torch.tensor(2.).to(a.dtype).log(),
                                 torch.log1p(-torch.exp(-a)),
                                 torch.log(-torch.expm1(-a)))
+
+log1pexp = lambda a: torch.where(a>torch.tensor(18.).to(a.dtype),
+                                 torch.where(a>torch.tensor(33.3).to(a.dtype),
+                                             a,
+                                             a + (-a).exp()),
+                                 torch.where(a>torch.tensor(-37.).to(a.dtype),
+                                             a.exp().log1p(),
+                                             a.exp()))
+
+log1pexp_ = lambda a: torch.where(a>torch.tensor(18.).to(a.dtype),
+                                 torch.where(a>torch.tensor(33.3).to(a.dtype),
+                                             torch.zeros(a.size()).to(a.dtype),
+                                             -(-a).exp()),
+                                 torch.where(a>torch.tensor(-37.).to(a.dtype),
+                                             a - a.exp().log1p(),
+                                             a - a.exp()))
 
 def cart2polar(x, y):
     """
@@ -248,4 +265,46 @@ def unit_circle(x):
     x0, x1 = x.select(-1,0), x.select(-1,1)
     theta = torch.atan2(x1,x0)
     return torch.stack((theta.cos(), theta.sin()), dim=-1).squeeze()
-    
+
+def hrg_likelihood(A, r, phi_polar, R, T, alpha, debug=False):
+    n = len(r)
+    edges = torch.where(A>0, 
+                            torch.ones(A.size()), 
+                            torch.zeros(A.size()))
+    l1e_a_ri = log1mexp(alpha*r*2)
+    #print(l1e_a_ri.sum())
+    l1e_a_R = log1mexp(alpha*R)
+   # print(l1e_a_R)
+    a_R_ri = alpha * (r-R)
+    #print(a_R_ri.sum())
+    r_matrix = r.expand(n,n)
+    phi_matrix = phi_polar.expand(n,n)
+    cd = cosh_dist(r_matrix, r_matrix.t(), phi_matrix, phi_matrix.t())
+    l1pe = ((cd*2).log()-R)/(2*T)
+    lp = edges*(-log1pexp(l1pe)) + (1-edges)*(log1pexp_(l1pe))
+    if debug: print('Prob edges >>', lp.sum().item())
+    if debug: print('a_R_ri  >>', (a_R_ri+l1e_a_ri).sum().item())
+    if debug: print('Alpha       >>', alpha.log().item())
+    if debug: print('l1e_a_R     >>', 2*l1e_a_R.item())
+    out = lp.sum() + (a_R_ri+l1e_a_ri).sum() + alpha.log() \
+        - torch.tensor(np.pi*2).log() - 2*l1e_a_R
+    return out.item()
+
+def hrg_L(A, r, phi_polar, R, T, alpha, debug=False):
+    n = len(r)
+    edges = torch.where(A>0, 
+                            torch.ones(A.size()), 
+                            torch.zeros(A.size()))
+    #l1e_a_ri = log1mexp(alpha*r*2)
+    #print(l1e_a_ri.sum())
+    #l1e_a_R = log1mexp(alpha*R)
+    #print(l1e_a_R)
+    #a_R_ri = alpha * (r-R)
+    #print(a_R_ri.sum())
+    r_matrix = r.expand(n,n)
+    phi_matrix = phi_polar.expand(n,n)
+    cd = cosh_dist(r_matrix, r_matrix.t(), phi_matrix, phi_matrix.t())
+    l1pe = ((cd*2).log()-R)/(2*T)
+    lp = edges*(-log1pexp(l1pe)) + (1-edges)*(log1pexp_(l1pe))
+    out = lp.sum()
+    return out.item()

@@ -99,7 +99,7 @@ class VI_HRG(torch.nn.Module):
         self.fixed = fixed
         self.dtype = f64
         self.epsilon = 1e-5  # Keeps some params away from extream values
-        self.max_cosh = 1e+5
+        self.max_cosh = 1e+24
         if device is not None:
             self.device = device
         else:
@@ -345,7 +345,7 @@ class VI_HRG(torch.nn.Module):
         #p_halfbaked = torch.where(torch.isnan(p_raw),torch.ones(p_raw.shape).to(self.dtype),p_raw)
         p_clamped = torch.clamp(warn_tensor(p_raw,'p_raw'), min=self.epsilon, max=1.-self.epsilon)
         
-        prob_edges = Bernoulli(p_clamped).log_prob(edges).mean(dim=0)
+        prob_edges = Bernoulli(p_raw).log_prob(edges).mean(dim=0)
         
         elbo1 = 0 if not self.Rf is None else - L/self.num_nodes**2 * \
             kl_divergence(R_q, Gamma(self.R_p[0], self.R_p[1].reciprocal())).double()
@@ -549,13 +549,13 @@ class VI_HRG(torch.nn.Module):
                   % (epoch_num+1, self.optimizer.lr, tl, lh, (t2-t1)))
         return tl
     
-    def likelihood(self):
+    def likelihood(self, debug=False):
         ''' Compute the model likelihood       
         '''        
         total_lh = 0
         for idx1, idx2, data in self.dataloader:
             idx1, idx2, data = idx1.to(self.device), idx2.to(self.device), data.to(self.device)
-            total_lh += self.elbo(idx1, idx2, data, likelihood=True)
+            total_lh += self.elbo(idx1, idx2, data, debug=debug, likelihood=True)
             
         return total_lh.detach().item()
     
