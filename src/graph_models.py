@@ -416,7 +416,7 @@ class HRG():
     Example:
 
     N = 200
-    G = HRG(R=torch.tensor([6.0]).to(torch.double),
+    G = HRG(R=6.0,
             alpha=1.5,
             T=0.1)
     r, theta, A = G.generate(N)
@@ -424,10 +424,11 @@ class HRG():
     G.plot()
     '''
     
-    def __init__(self, R, alpha, T):
-        self.R = R
-        self.alpha = alpha
-        self.T = T
+    def __init__(self, R, alpha, T, dtype=torch.double):
+        self.dtype = dtype
+        self.R = torch.tensor(R).to(self.dtype)
+        self.alpha = torch.tensor(alpha).to(self.dtype)
+        self.T = torch.tensor(T).to(self.dtype)
         self.A = None
         
     def transform(self, r): 
@@ -435,16 +436,16 @@ class HRG():
             
     def generate(self, n, r=None, theta=None, directed=False):
         ''' Generate the adjacency matrix A and the nodes attribute u.'''
-        u = Uniform(0.,1.).sample([n]).to(torch.double)
+        u = Uniform(0.,1.).sample([n]).to(self.dtype)
         if r is None:
             self.r = self.transform(u)
         else:
-            self.r = r.double()
+            self.r = r.to(self.dtype)
         if theta is None:
-            self.theta = Uniform(0., 2*np.pi).sample([n]).to(torch.double)
+            self.theta = Uniform(0., 2*np.pi).sample([n]).to(self.dtype)
         else:
-            self.theta = theta.double()
-        M = torch.ones([n, n]).to(torch.double)
+            self.theta = theta.to(self.dtype)
+        M = torch.ones([n, n]).to(self.dtype)
         Mr = M * self.r
         Mt = M * self.theta
         Md = hyperdist(Mr, Mr.t(), Mt, Mt.t())
@@ -455,16 +456,16 @@ class HRG():
 
     def generate_W(self, n, r=None, theta=None, directed=False):
         ''' '''
-        u = Uniform(0.,1.).sample([n]).to(torch.double)
+        u = Uniform(0.,1.).sample([n]).to(self.dtype)
         if r is None:
             self.r = self.transform(u)
         else:
-            self.r = r.double()
+            self.r = r.to(self.dtype)
         if theta is None:
-            self.theta = Uniform(0., 2*np.pi).sample([n]).to(torch.double)
+            self.theta = Uniform(0., 2*np.pi).sample([n]).to(self.dtype)
         else:
-            self.theta = theta.double()
-        M = torch.ones([n, n]).to(torch.double)
+            self.theta = theta.to(self.dtype)
+        M = torch.ones([n, n]).to(self.dtype)
         Mr = M * self.r
         Mt = M * self.theta
         Md = hyperdist(Mr, Mr.t(), Mt, Mt.t())
@@ -519,7 +520,51 @@ class HRG():
 
 ###############################################################################
         
-class EdgesDataset(IterableDataset):
+class EdgesIterableDataset(IterableDataset):
+    ''' Dataset class; transformes the given adjacency matrix to 
+    a list of edges and allowes to iterate over them.
+    
+    Parameters:
+    
+    A (torch.Tensor, size: number of nodes * number of nodes):
+        adjacency matrix.
+    edges (triple of torch.Tensor):
+        list of edges; each edge defined as (start node {torch.int}, 
+        finish node {torch.int}, weight {torch.float}).
+        
+    Example (with torch.utils.data.DataLoader):
+    
+    >> dataloader = DataLoader(EdgesDataset(A), 
+                               batch_size=10, 
+                               shuffle=True, 
+                               num_workers=0)
+    >> dataiter = iter(dataloader)
+    >> idx1, idx2, data = dataiter.next()
+    '''
+    
+    def __init__(self, adj_matrix):
+        super(EdgesIterableDataset).__init__()
+        assert adj_matrix.size()[0]==adj_matrix.size()[1]
+        self.A = adj_matrix
+        edges = []
+        for i in range(self.A.size()[0]):
+            for j in range(self.A.size()[1]):
+                edges.append((i,j,self.A[i,j]))
+        self.edges = edges
+        
+#    def __len__(self):
+#        return len(self.edges)
+#    
+#    def __getitem__(self, idx):
+#        return self.edges[idx]
+        
+    def __iter__(self):
+        return iter(self.edges)
+        
+    def get_matrix(self):
+        return self.A
+
+class EdgesDataset(Dataset):
     ''' Dataset class; transformes the given adjacency matrix to 
     a list of edges and allowes to iterate over them.
     
@@ -551,14 +596,9 @@ class EdgesDataset(IterableDataset):
                 edges.append((i,j,self.A[i,j]))
         self.edges = edges
         
-#    def __len__(self):
-#        return len(self.edges)
-#    
-#    def __getitem__(self, idx):
-#        return self.edges[idx]
+    def __len__(self):
+        return len(self.edges)
+    
+    def __getitem__(self, idx):
+        return self.edges[idx]
         
-    def __iter__(self):
-        return iter(self.edges)
-        
-    def get_matrix(self):
-        return self.A

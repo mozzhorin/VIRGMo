@@ -35,7 +35,7 @@ class VI_RG(torch.nn.Module):
     num_nodes (int): number of nodes N
     
     '''
-    def __init__(self, num_classes=2, num_nodes=50, priors=None, 
+    def __init__(self, num_nodes=50, priors=None, 
                  init_values=None, device=None):
         ''' Initialize the model.
         
@@ -48,7 +48,6 @@ class VI_RG(torch.nn.Module):
             distribution's parameters.
         '''
         super(VI_RG, self).__init__()        
-        self.num_classes = num_classes
         self.num_nodes = num_nodes
         self.init_values = init_values
         self.epsilon = 1e-14  # Keeps some params away from extream values
@@ -84,7 +83,7 @@ class VI_RG(torch.nn.Module):
         ''' Return constrained posterior parameters. '''
         pass
     
-    def elbo(self, idx1, idx2, weights):
+    def elbo(self, idx1, idx2, weights, debug=False):
         ''' Return the evidence lower bound (ELBO) calculated for a nodes 
         batch of size L; also the loss for the training.
         
@@ -93,6 +92,7 @@ class VI_RG(torch.nn.Module):
         idx1 (torch.int, size: L): start nodes.
         idx2 (torch.int, size: L): finish nodes.
         weights (torch.float, size: L): edges' weights.
+        debug (bool): debug mode 
         
         '''        
         pass
@@ -193,7 +193,7 @@ class VI_RG(torch.nn.Module):
         '''
         return()
     
-    def train_(self, epoch_num):
+    def train_(self, epoch_num, debug=False):
         ''' Fit the variational distribution for one epoch.
         
         ARGUMENTS:
@@ -204,21 +204,21 @@ class VI_RG(torch.nn.Module):
         total_loss = 0
         for idx1, idx2, data in self.dataloader:
             idx1, idx2, data = idx1.to(self.device), idx2.to(self.device), data.to(self.device)
-            loss = - self.elbo(idx1, idx2, data)
+            loss = - self.elbo(idx1, idx2, data, debug=False)
             self.optimizer.zero_grad()
             loss.backward(retain_graph=False)
             self.optimizer.step()
             total_loss += loss.detach().clone()
-            if data.sum()<=0:
-                warnings.warn('Batch is empty! Your graph is to sparse, increase the batch size!')            
+#            if data.sum()<=0:
+#                warnings.warn('Batch is empty! Your graph is to sparse, increase the batch size!')            
         t2 = time.time()
         tl = total_loss.cpu().data.numpy().item()
         print('Epoch %d | LR: %.2f | Total loss: %.2f | Epoch time %.2f'\
                   % (epoch_num+1, self.optimizer.lr, tl, (t2-t1)))
         return tl
     
-    def train(self, dataloader, optimizer='rmsprop', 
-              lrs=0.1, epochs=10, momentum=None):
+    def train(self, dataloader, optimizer=torch.optim.RMSprop, 
+              lrs=0.1, epochs=10, momentum=None, debug=False):
         ''' Fit the variational distribution for a number of epochs.
         
         ARGUMENTS:
@@ -243,16 +243,18 @@ class VI_RG(torch.nn.Module):
         self.epochs = epochs
         
         # Set the optimizer
-        if optimizer=='rmsprop':
-            self.optimizer = torch.optim.RMSprop(self.parameters())   
-        elif optimizer=='adagrad':
-            self.optimizer = torch.optim.Adagrad(self.parameters())
-        elif optimizer=='adam':
-            self.optimizer = torch.optim.Adam(self.parameters())
-        elif optimizer=='asgd':
-            self.optimizer = torch.optim.ASGD(self.parameters())
-        elif optimizer=='sgd':
-            self.optimizer = torch.optim.SGD(self.parameters())
+        self.optimizer = optimizer(self.parameters()) 
+        
+#        if optimizer=='rmsprop':
+#            self.optimizer = torch.optim.RMSprop(self.parameters())   
+#        elif optimizer=='adagrad':
+#            self.optimizer = torch.optim.Adagrad(self.parameters())
+#        elif optimizer=='adam':
+#            self.optimizer = torch.optim.Adam(self.parameters())
+#        elif optimizer=='asgd':
+#            self.optimizer = torch.optim.ASGD(self.parameters())
+#        elif optimizer=='sgd':
+#            self.optimizer = torch.optim.SGD(self.parameters())
         
         # Set the momentum if specified
         if momentum is not None:
@@ -293,7 +295,7 @@ class VI_RG(torch.nn.Module):
         self.loss_list = torch.tensor(self.loss_list)
         print('>>>>>>>>>>>> Training is finished.\n')
         
-    def multi_train(self, dataloader, optimizer='rmsprop', momentum=None,
+    def multi_train(self, dataloader, optimizer=torch.optim.RMSprop, momentum=None,
                     lrs=0.1, epochs=10, trials=10,
                     init_states=None):
         ''' Fit the model several times. Used when the model has many local
@@ -330,25 +332,28 @@ class VI_RG(torch.nn.Module):
                 results.append([])
             
             for i in range(trials):
-                if init_states is None:
-                    self.params_reset()
-                else:
-                    self.load_state_dict(init_states[i])
-                print('>>>>>>> Training iteration #%d \n' % (i+1))
-                self.train(dataloader, optimizer=optimizer, epochs=epochs, lrs=lrs,
-                           momentum=momentum)
-                means = self.qmean()
-                for i in range(num_param):
-                    results[i].append(means[i])
-                losses.append(self.loss_list)
-                state_dicts.append(self.state_dict())
+                try:
+                    if init_states is None:
+                        self.params_reset()
+                    else:
+                        self.load_state_dict(init_states[i])
+                    print('>>>>>>> Training iteration #%d \n' % (i+1))
+                    self.train(dataloader, optimizer=optimizer, epochs=epochs, lrs=lrs,
+                               momentum=momentum)
+                    means = self.qmean()
+                    for j in range(num_param):
+                        results[j].append(means[j])
+                    losses.append(self.loss_list)
+                    state_dicts.append(self.state_dict())
+                except Exception as e: 
+                    print(e)
             for i in range(num_param):
                 results[i]=torch.stack(results[i])
             results.append(torch.stack(losses))
             self.multi_results = results
             self.state_dicts = state_dicts
             
-    def pyramid_train(self, dataloader, optimizer='rmsprop', momentum=None,
+    def pyramid_train(self, dataloader, optimizer=torch.optim.RMSprop, momentum=None,
                     lrs=[0.1, 0.05, 0.01], 
                     epochs=[10,10,10],  
                     trials=[100,10,1]):
@@ -511,8 +516,9 @@ class VI_SBM(VI_RG):
         init_values (dict of torch.float): initial values of the variational 
             distribution's parameters.
         ''' 
-        super(VI_SBM, self).__init__(num_classes, num_nodes, priors, 
+        super(VI_SBM, self).__init__(num_nodes, priors, 
                                      init_values, device)
+        self.num_classes = num_classes
         # Initialize parameters of variational distribution      
         self.params_reset()        
         
@@ -568,7 +574,7 @@ class VI_SBM(VI_RG):
                torch.exp(self.thetas)+self.epsilon, 
                torch.exp(self.Bs))
     
-    def elbo(self, idx1, idx2, weights):
+    def elbo(self, idx1, idx2, weights, debug=False):
         ''' Return evidence lower bound (ELBO) calculated for a nodes batch 
         of size L; also the loss for the training.
         
@@ -715,7 +721,7 @@ class VI_DCSBM(VI_SBM):
         return (softmax(self.etas), torch.exp(self.thetas),
                 torch.exp(self.Bs), self.deltas)     
     
-    def elbo(self, idx1, idx2, weights):
+    def elbo(self, idx1, idx2, weights, debug=False):
         ''' Return evidence lower bound (ELBO) calculated for a nodes batch 
         of size L; also the loss for the training.
         
@@ -895,7 +901,7 @@ class VI_WDCSBM(VI_DCSBM):
                 torch.exp(self.Bs), self.deltas, 
                 torch.exp(self.mus), torch.exp(self.taus))
     
-    def elbo(self, idx1, idx2, weights):
+    def elbo(self, idx1, idx2, weights, debug=False):
         ''' Return evidence lower bound (ELBO) calculated for a nodes batch 
         of size L; also the loss for the training.
         
@@ -1072,7 +1078,7 @@ class VI_WSBM(VI_SBM):
         return (softmax(self.etas), torch.exp(self.thetas)+self.epsilon,
                 torch.exp(self.Bs), torch.exp(self.mus), torch.exp(self.taus))
     
-    def elbo(self, idx1, idx2, weights):
+    def elbo(self, idx1, idx2, weights, debug=False):
         ''' Return evidence lower bound (ELBO) calculated for a nodes batch 
         of size L; also the loss for the training.
         
@@ -1088,7 +1094,6 @@ class VI_WSBM(VI_SBM):
         elbo  = - L / self.num_nodes**2 * diriKL(theta_x, self.theta_p)                
         elbo += - L / self.num_nodes**2 * diriKL(B_x, self.B_p).sum()        
         elbo +=   1 / self.num_nodes * self.phi(idx1, eta_x, theta_x)
-#        elbo += - 1 / self.num_nodes * normKL(delta_x, self.delta_p).sum()
         elbo += - L / self.num_nodes**2 * normKL(mu_x, self.mu_p).sum()
         elbo += - L / self.num_nodes**2 * gammaKL(tau_x, self.tau_p).sum()
         elbo += self.omega(B_x, eta_x, idx1, idx2, weights)
@@ -1201,8 +1206,8 @@ class VI_WCRG(VI_RG):
         init_values (dict of torch.float): initial values of the variational 
             distribution's parameters.
         '''                           
-        super(VI_WCRG, self).__init__(num_classes, num_nodes, 
-                                      priors, init_values, device) 
+        super(VI_WCRG, self).__init__(num_nodes, priors, init_values, device) 
+        self.num_classes = num_classes
         self.params_reset()                               
         if priors['theta_p'] is None:
             # Default flat prior for Dirichlet distribution
@@ -1265,7 +1270,7 @@ class VI_WCRG(VI_RG):
         return (softmax(self.etas), torch.exp(self.thetas)+self.epsilon,
                 torch.exp(self.mus), torch.exp(self.taus))
     
-    def elbo(self, idx1, idx2, weights):
+    def elbo(self, idx1, idx2, weights, debug=False):
         ''' Return evidence lower bound (ELBO) calculated for a nodes batch 
         of size L; also the loss for the training.
         

@@ -8,6 +8,11 @@ import itertools
 import copy
 import numpy as np
 
+def warning_on_one_line(message, category, filename, lineno, file=None, line=None):
+    return ' %s:%s: %s:%s \n' % (filename, lineno, category.__name__, message)
+warnings.simplefilter('once', UserWarning)
+warnings.formatwarning = warning_on_one_line
+
 def diriKL(alphas, betas):
     ''' Kullback-Leibler Divergence Between Two Dirichlet Distributions.    
     See http://bariskurt.com/kullback-leibler-divergence-between-two-dirichlet-and-beta-distributions/
@@ -215,7 +220,31 @@ log1pexp_ = lambda a: torch.where(a>torch.tensor(18.).to(a.dtype),
                                  torch.where(a>torch.tensor(-37.).to(a.dtype),
                                              a - a.exp().log1p(),
                                              a - a.exp()))
+                                 
+clmpd_log1pexp = lambda a: torch.where(a>torch.tensor(16.).to(a.dtype),
+                                 -a,
+                                 torch.where(a>torch.tensor(-16.).to(a.dtype),
+                                             -a.exp().log1p(),
+                                             torch.tensor(-1e-8).to(a.dtype).expand(a.size())))
 
+clmpd_log1pexp_ = lambda a: torch.where(a>torch.tensor(16.).to(a.dtype),
+                                 torch.tensor(-1e-8).to(a.dtype).expand(a.size()),
+                                 torch.where(a>torch.tensor(-16.).to(a.dtype),
+                                             a - a.exp().log1p(),
+                                             a))
+
+lin_app1 = lambda a: torch.where(a>torch.tensor(-1.3).to(a.dtype),
+                                 torch.min(-0.5*a-0.7, -a),
+                                 torch.tensor(-0.05).to(a.dtype).expand(a.size()))
+lin_app2 = lambda a: torch.where(a>torch.tensor(1.3).to(a.dtype),                                 
+                                 torch.tensor(-0.05).to(a.dtype).expand(a.size()),
+                                 torch.min(0.5*a-0.7, a))
+lin_app3 = lambda a: torch.where(a>torch.tensor(-1.4).to(a.dtype),
+                                 torch.min(-0.5*a-0.7, -a),
+                                 torch.zeros(a.size()).to(a.dtype))
+lin_app4 = lambda a: torch.where(a>torch.tensor(1.4).to(a.dtype),                                 
+                                 torch.zeros(a.size()).to(a.dtype),
+                                 torch.min(0.5*a-0.7, a))
 def cart2polar(x, y):
     """
     Transform Cartesian coordinates to polar.
