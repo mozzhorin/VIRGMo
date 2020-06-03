@@ -309,8 +309,11 @@ def hrg_likelihood(A, r, phi_polar, R, T, alpha, debug=False):
     r_matrix = r.expand(n,n)
     phi_matrix = phi_polar.expand(n,n)
     cd = cosh_dist(r_matrix, r_matrix.t(), phi_matrix, phi_matrix.t())
-    l1pe = ((cd*2).log()-R)/(2*T)
-    lp = edges*(-log1pexp(l1pe)) + (1-edges)*(log1pexp_(l1pe))
+    if T==0:
+        l1pe = ((cd*2).log()-R)/(2*T)
+    else:
+        l1pe = ((cd*2).log()-R)/(2*T)
+        lp = edges*(-log1pexp(l1pe)) + (1-edges)*(log1pexp_(l1pe))
     if debug: print('Prob edges >>', lp.sum().item())
     if debug: print('a_R_ri  >>', (a_R_ri+l1e_a_ri).sum().item())
     if debug: print('Alpha       >>', alpha.log().item())

@@ -228,6 +228,7 @@ class VI_HRG(VI_RG):
         
         '''
         L = len(weights)   # Batch size
+        
         r_x_loc, r_x_scale, phi_x_loc, phi_x_scale, R_x_conc, R_x_scale, T_x, \
             alpha_x_conc, alpha_x_scale = self.constrained_params() 
         

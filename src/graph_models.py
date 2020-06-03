@@ -537,9 +537,13 @@ class HRG():
         Mr = M * self.r
         Mt = M * self.theta
         Md = hyperdist(Mr, Mr.t(), Mt, Mt.t())
-        Md = undirect(Md)
-        W = 1/(1+((Md-self.R)/(2*self.T)).exp())
-        self.A = self.sample_A(W, directed)
+        #Md = undirect(Md)
+        if self.T==0:
+            W = undirect((Md<self.R).float())
+            print(W)
+        else:
+            W = 1/(1+((Md-self.R)/(2*self.T)).exp())
+        self.A = self.sample_A(W, directed=False)
         return self.r, self.theta, self.A
 
     def generate_W(self, n, r=None, theta=None, directed=False):
@@ -674,14 +678,18 @@ class EdgesDataset(Dataset):
     >> idx1, idx2, data = dataiter.next()
     '''
     
-    def __init__(self, adj_matrix):
+    def __init__(self, adj_matrix, directed=True, diagonal=True):
         super(EdgesDataset).__init__()
         assert adj_matrix.size()[0]==adj_matrix.size()[1]
         self.A = adj_matrix
         edges = []
         for i in range(self.A.size()[0]):
             for j in range(self.A.size()[1]):
-                edges.append((i,j,self.A[i,j]))
+                if directed:
+                    edges.append((i,j,self.A[i,j]))
+                else:
+                    if i<j or (i==j and diagonal):
+                        edges.append((i,j,self.A[i,j]))
         self.edges = edges
         
     def __len__(self):
