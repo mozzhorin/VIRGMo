@@ -21,7 +21,7 @@ from torch.utils.data import Dataset, DataLoader
 #from torch.nn.functional import sigmoid
 
 from utils import diriKL, gammaKL, normKL, warn_tensor
-from graph_models import WDCSBM, DCSBM, SBM, EdgesDataset, WCRG
+#from graph_models import WDCSBM, DCSBM, SBM, EdgesDataset, WCRG
 
 softmax = torch.nn.Softmax(dim=0)
 
@@ -193,7 +193,7 @@ class VI_RG(torch.nn.Module):
         '''
         return()
     
-    def train_(self, epoch_num, debug=False):
+    def train_(self, epoch_num, debug=False, verbose=True):
         ''' Fit the variational distribution for one epoch.
         
         ARGUMENTS:
@@ -204,7 +204,7 @@ class VI_RG(torch.nn.Module):
         total_loss = 0
         for idx1, idx2, data in self.dataloader:
             idx1, idx2, data = idx1.to(self.device), idx2.to(self.device), data.to(self.device)
-            loss = - self.elbo(idx1, idx2, data, debug=False)
+            loss = - self.elbo(idx1, idx2, data, debug=debug)
             self.optimizer.zero_grad()
             loss.backward(retain_graph=False)
             self.optimizer.step()
@@ -213,12 +213,13 @@ class VI_RG(torch.nn.Module):
 #                warnings.warn('Batch is empty! Your graph is to sparse, increase the batch size!')            
         t2 = time.time()
         tl = total_loss.cpu().data.numpy().item()
-        print('Epoch %d | LR: %.2f | Total loss: %.2f | Epoch time %.2f'\
+        if verbose:
+            print('Epoch %d | LR: %.2f | Total loss: %.2f | Epoch time %.2f'\
                   % (epoch_num+1, self.optimizer.lr, tl, (t2-t1)))
         return tl
     
     def train(self, dataloader, optimizer=torch.optim.RMSprop, 
-              lrs=0.1, epochs=10, momentum=None, debug=False):
+              lrs=0.1, epochs=10, momentum=None, debug=False, verbose=True):
         ''' Fit the variational distribution for a number of epochs.
         
         ARGUMENTS:
@@ -245,17 +246,6 @@ class VI_RG(torch.nn.Module):
         # Set the optimizer
         self.optimizer = optimizer(self.parameters()) 
         
-#        if optimizer=='rmsprop':
-#            self.optimizer = torch.optim.RMSprop(self.parameters())   
-#        elif optimizer=='adagrad':
-#            self.optimizer = torch.optim.Adagrad(self.parameters())
-#        elif optimizer=='adam':
-#            self.optimizer = torch.optim.Adam(self.parameters())
-#        elif optimizer=='asgd':
-#            self.optimizer = torch.optim.ASGD(self.parameters())
-#        elif optimizer=='sgd':
-#            self.optimizer = torch.optim.SGD(self.parameters())
-        
         # Set the momentum if specified
         if momentum is not None:
             self.optimizer.momentum = momentum
@@ -264,13 +254,14 @@ class VI_RG(torch.nn.Module):
         self.loss_list = [] 
         
         # Training loop
-        print('>>>>>>>>>>>> Start training...')
+        if verbose:
+            print('>>>>>>>>>>>> Start training...')
         epoch_counter = 0
         # Check if lrs is a float, then run only one loop
         if isinstance(self.lrs, float) or isinstance(self.lrs, int):
             self.optimizer.lr=self.lrs
             for e in range(self.epochs):
-                   curr_loss = self.train_(epoch_counter)
+                   curr_loss = self.train_(epoch_counter, debug, verbose)
                    epoch_counter +=1
                    self.loss_list.append(curr_loss)
         else:
@@ -280,7 +271,7 @@ class VI_RG(torch.nn.Module):
                 for lr in self.lrs:
                     self.optimizer.lr=lr
                     for e in range(self.epochs):
-                       curr_loss = self.train_(epoch_counter)
+                       curr_loss = self.train_(epoch_counter, debug, verbose)
                        epoch_counter +=1
                        self.loss_list.append(curr_loss)
             # If both lrs and epochs are lists, train the model with 
@@ -289,15 +280,15 @@ class VI_RG(torch.nn.Module):
                 for l in range(len(self.lrs)):
                     self.optimizer.lr=self.lrs[l]
                     for e in range(self.epochs[l]):
-                            curr_loss = self.train_(epoch_counter)
+                            curr_loss = self.train_(epoch_counter, debug, verbose)
                             epoch_counter +=1
                             self.loss_list.append(curr_loss)                 
         self.loss_list = torch.tensor(self.loss_list)
-        print('>>>>>>>>>>>> Training is finished.\n')
+        if verbose:
+            print('>>>>>>>>>>>> Training is finished.\n')
         
     def multi_train(self, dataloader, optimizer=torch.optim.RMSprop, momentum=None,
-                    lrs=0.1, epochs=10, trials=10,
-                    init_states=None):
+                    lrs=0.1, epochs=10, trials=10, init_states=None, debug=False, verbose=False):
         ''' Fit the model several times. Used when the model has many local
         optimas and the quality of fit highly depends on the initial values of
         the variational distribution's parameters.
@@ -330,21 +321,27 @@ class VI_RG(torch.nn.Module):
             losses, state_dicts = [], []
             for i in range(num_param-1):
                 results.append([])
-            
+            print('>>>>>>> Start multi-training...')
             for i in range(trials):
                 try:
+                    t1 = time.time()  # Measure the training time
                     if init_states is None:
                         self.params_reset()
                     else:
                         self.load_state_dict(init_states[i])
-                    print('>>>>>>> Training iteration #%d \n' % (i+1))
+                    if verbose:
+                        print('>>>>>>> Training trial #%d \n' % (i+1))
                     self.train(dataloader, optimizer=optimizer, epochs=epochs, lrs=lrs,
-                               momentum=momentum)
+                               momentum=momentum, debug=debug, verbose=verbose)
                     means = self.qmean()
                     for j in range(num_param):
                         results[j].append(means[j])
                     losses.append(self.loss_list)
                     state_dicts.append(self.state_dict())
+                    t2 = time.time()
+                    if not verbose:
+                        print('>>> Trial %d/%d | Final loss: %.2f | Trial time %.2f'\
+                               % (i+1, trials, self.loss_list[-1], (t2-t1)))
                 except Exception as e: 
                     print(e)
             for i in range(num_param):
@@ -352,6 +349,12 @@ class VI_RG(torch.nn.Module):
             results.append(torch.stack(losses))
             self.multi_results = results
             self.state_dicts = state_dicts
+            
+    def get_multi_losses(self):
+        return self.multi_results[-1]
+    
+    def get_multi_means(self):
+        return self.multi_results[:-1]
             
     def pyramid_train(self, dataloader, optimizer=torch.optim.RMSprop, momentum=None,
                     lrs=[0.1, 0.05, 0.01], 
@@ -1169,7 +1172,6 @@ class VI_WCRG(VI_RG):
     
     N = 75
     p = torch.tensor([0.2, 0.3, 0.5])
-    delta = torch.tensor([[0.,1.], [2.,1.], [-2.,4.]])
     g_mu = torch.tensor([
             [10., 5., 2.],
             [5., 50., 2.],
@@ -1284,10 +1286,15 @@ class VI_WCRG(VI_RG):
         L = len(weights)   # Batch size
         eta_x, theta_x, mu_x, tau_x = self.constrained_params()
         elbo  = - L / self.num_nodes**2 * diriKL(theta_x, self.theta_p)
-        elbo +=   1 / self.num_nodes * self.phi(idx1, eta_x, theta_x)
+        if debug: print('D_KL(theta)>>', str(elbo))
         elbo += - L / self.num_nodes**2 * normKL(mu_x, self.mu_p).sum()
+        if debug: print('+D_KL(mu)  >>', str(elbo))
         elbo += - L / self.num_nodes**2 * gammaKL(tau_x, self.tau_p).sum()
+        if debug: print('+D_KL(tau) >>', str(elbo))
+        elbo +=   1 / self.num_nodes * self.phi(idx1, eta_x, theta_x)
+        if debug: print('+Phi       >>', str(elbo))        
         elbo += self.psi(eta_x, mu_x, tau_x, idx1, idx2, weights)
+        if debug: print('+Psi       >>', str(elbo))
         return elbo
 
     def qmean(self):

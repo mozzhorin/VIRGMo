@@ -337,3 +337,14 @@ def hrg_L(A, r, phi_polar, R, T, alpha, debug=False):
     lp = edges*(-log1pexp(l1pe)) + (1-edges)*(log1pexp_(l1pe))
     out = lp.sum()
     return out.item()
+
+def permute_classes(tensor, perm=None):
+    t = tensor + tensor.max()
+    uni = t.unique().clone()
+    if perm is None:
+        perm = range(len(uni))
+    for i in range(len(perm)):
+        t = torch.where(t==uni[i], 
+                            torch.ones(t.size())*perm[i],
+                            t)
+    return t

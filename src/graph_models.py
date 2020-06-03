@@ -49,7 +49,7 @@ class Graphon():
         self.A = self.sample_A(self.W(self.u, self.u), directed)
         return self.u, self.A
     
-    def sample_A(self, W, directed=False):
+    def sample_A(self, W, directed=True):
         ''' Sample the adjacence matrix A from Bernoulli distribution
         with probabilities W.'''
         A = Bernoulli(W).sample()        
@@ -179,7 +179,7 @@ class SBM(Graphon):
         self.z = None
         self.A = None
         
-    def generate(self, n, directed=False):
+    def generate(self, n, directed=True):
         ''' Generate the adjacency matrix A and the nodes assignments z.'''
         self.z = Multinomial(1, self.theta).sample(sample_shape=[n])
         A_prob = torch.mm(torch.mm(self.z,self.B), self.z.t())
@@ -250,7 +250,7 @@ class DCSBM(SBM):
         self.z = None
         self.A = None
         
-    def generate(self, n, directed=False):
+    def generate(self, n, directed=True):
         ''' Generate the adjacence matrix A and nodes assignments z.'''
         self.z = Multinomial(1, self.theta).sample(sample_shape=[n])
         delta_classes = Normal(self.delta_distr.t()[0], self.delta_distr.t()[1]).sample(sample_shape=[n])
@@ -259,9 +259,97 @@ class DCSBM(SBM):
             * torch.sigmoid(self.delta.unsqueeze(-1) + self.delta.unsqueeze(-1).t())
         self.A = self.sample_A(A_prob, directed)
         return(self.z, self.A)
+
+class WSBM(SBM):
+    ''' Weighted stochastic block model.
+    
+    Parameters:
+    
+    theta (torch.Tensor, size: number of classes):
+        classes probabilities.
+    B (torch.Tensor, size: number of classes * number of classes): 
+        edges probabilities between nodes of specific classes.
+    z (torch.Tensor, size: number of classes * number of nodes): 
+        nodes assignment to a specific class.
+    A (torch.Tensor, size: number of nodes * number of nodes):
+        weighted adjacency matrix.
+    g_mu (torch.Tensor, size: number of classes * number of classes): 
+        mean weights of edges between nodes of specific classes.
+    g_tau (torch.Tensor, size: number of classes * number of classes): 
+        precision weights of edges between nodes of specific classes.
         
+    Example:
+
+    N = 75
+    p = torch.tensor([0.2, 0.3, 0.5])
+    b = torch.tensor([
+            [0.8, 0.1, 0.4],
+            [0.1, 0.9, 0.1],
+            [0.4, 0.1, 0.8]])
+    g_mu = torch.tensor([
+            [10., 5., 2.],
+            [5., 10., 2.],
+            [2., 2., 20.]])
+    g_tau = torch.ones([3,3])*2
+    model = WSBM(p, b, g_mu.log(), g_tau) 
+    z, A = model.generate(N, directed=True)
+    model.show(sorted=True)       
         
-class WDCSBM(SBM):
+    '''
+    
+    def __init__(self, theta, B, g_mu, g_tau):
+        self.theta = theta 
+        self.B = B
+        self.g_mu = g_mu
+        self.g_tau = g_tau
+        self.z = None
+        self.A = None
+        
+    def generate(self, n, directed=True, weight_interval=None):
+        ''' Generate the adjacence matrix A and nodes assignments z.'''
+        self.z = Multinomial(1, self.theta).sample(sample_shape=[n])
+        A_prob = torch.mm(torch.mm(self.z,self.B), self.z.t())
+        x = self.sample_A(A_prob, directed)  
+        weights_loc = torch.mm(torch.mm(self.z,self.g_mu), self.z.t())
+        weights_scale = 1/torch.mm(torch.mm(self.z,self.g_tau), self.z.t()).pow(0.5)
+        w = LogNormal(weights_loc,weights_scale).sample()
+        if not weight_interval is None:
+            w = torch.where(w < weight_interval[0], 
+                            torch.ones(w.size())*weight_interval[0], 
+                            w)
+            w = torch.where(w > weight_interval[1], 
+                            torch.ones(w.size())*weight_interval[1], 
+                            w)
+        if not directed:
+            w = w.triu(diagonal=1) + w.triu(diagonal=1).t()
+        self.A = x*w       
+        return(self.z, self.A)
+    
+    def show(self, z=None, A=None, sorted=False, weights=True, 
+             size=(6,6), cmap='viridis', zero_edges_nan=False):
+        ''' Plot the adjacency matrix; if sorted: accordingly to 
+        the assinged class. '''
+        if z is None:
+            z = self.z.clone()
+        if A is None:
+            A = self.A.clone()
+        if not weights:
+            A = torch.where(A>0, 
+                            torch.ones(A.size()), 
+                            torch.zeros(A.size()))
+            
+        if zero_edges_nan:
+            A[A==0] = np.nan
+        plt.figure(figsize=size)
+        if sorted:
+            order = z.argmax(dim=1).argsort()
+            plt.imshow(A[:,order][order,:], cmap=cmap)        
+        else:
+            plt.imshow(A, cmap=cmap)
+        plt.colorbar()
+        plt.show()
+        
+class WDCSBM(WSBM):
     ''' Weighted degree-corected stochastic block model.
     
     Parameters:
@@ -311,7 +399,7 @@ class WDCSBM(SBM):
         self.z = None
         self.A = None
         
-    def generate(self, n, directed=False, weight_interval=None):
+    def generate(self, n, directed=True, weight_interval=None):
         ''' Generate the adjacence matrix A and nodes assignments z.'''
         z = Multinomial(1, self.theta).sample(sample_shape=[n])
         delta_classes = Normal(self.delta_distr.t()[0], self.delta_distr.t()[1]) \
@@ -382,7 +470,7 @@ class WCRG(SBM):
         self.z = None
         self.A = None
         
-    def generate(self, n, directed=False, weight_interval=None):
+    def generate(self, n, directed=True, weight_interval=None):
         ''' Generate the adjacence matrix A and nodes assignments z.'''
         z = Multinomial(1, self.theta).sample(sample_shape=[n])        
         weights_loc = torch.mm(torch.mm(z,self.g_mu), z.t())

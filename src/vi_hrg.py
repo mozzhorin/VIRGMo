@@ -14,7 +14,7 @@ import torch
 from torch.autograd import Variable
 from torch.distributions.bernoulli import Bernoulli
 from torch.distributions.beta import Beta
-#from torch.distributions.normal import Normal
+from torch.distributions.normal import Normal
 from torch.distributions.log_normal import LogNormal
 from torch.distributions.gamma import Gamma
 from torch.utils.data import Dataset, DataLoader
@@ -138,22 +138,22 @@ class VI_HRG(VI_RG):
         init_values dictionary or with random values.'''
         
         if self.init_values['rs_loc'] is None:
-            rs_loc = torch.rand([self.num_nodes])
+            rs_loc = torch.rand([self.num_nodes]).log()
         else:
             rs_loc = self.init_values['rs_loc']
             
         if self.init_values['rs_scale'] is None:
-            rs_scale = torch.rand([self.num_nodes])
+            rs_scale = (torch.ones([self.num_nodes])/4).log()
         else:
             rs_scale = self.init_values['rs_scale']
             
         if self.init_values['phis_loc'] is None:
-            phis_loc = torch.rand([self.num_nodes,2])
+            phis_loc = Normal(0,1).sample([self.num_nodes,2]).log()
         else:
             phis_loc = self.init_values['phis_loc']
             
         if self.init_values['phis_scale'] is None:
-            phis_scale = torch.rand([self.num_nodes])
+            phis_scale = (torch.ones([self.num_nodes])*20).log()
         else:
             phis_scale = self.init_values['phis_scale']
             
@@ -173,12 +173,12 @@ class VI_HRG(VI_RG):
             T = self.init_values['T']
             
         if self.init_values['alpha_conc'] is None:
-            alpha_conc = torch.tensor(27.).log()
+            alpha_conc = torch.tensor(75.).log()
         else:
             alpha_conc = self.init_values['alpha_conc']
             
         if self.init_values['alpha_scale'] is None:
-            alpha_scale = torch.tensor(0.03).log()
+            alpha_scale = torch.tensor(0.01).log()
         else:
             alpha_scale = self.init_values['alpha_scale']
             
@@ -267,6 +267,7 @@ class VI_HRG(VI_RG):
             a_R_ri = - alpha_samples.expand(L,self.num_samples).t()*\
                         (R_samples.expand(L,self.num_samples).t()-r_samples[:,idx1])
             r_q_lp = r_q.log_prob(r_samples)
+            r_q_lp = torch.clamp(r_q_lp, min=-1e+4)
             phi_q = VonMisesFisher(phi_x_loc, phi_x_scale.unsqueeze(dim=-1))
             phi_samples = phi_q.rsample(self.num_samples).to(self.device).to(self.dtype)
             cd_raw = cosh_dist(r_samples[:,idx1], r_samples[:,idx2], 
@@ -278,7 +279,7 @@ class VI_HRG(VI_RG):
                     or bad_tensor(warn_tensor(r_q_lp, 'r_q_lp')) \
                     or bad_tensor(warn_tensor(edes_prob_arg, 'edes_prob_arg')) ):
                 break
-            if loop_count > 1000:
+            if loop_count > 200:
                 raise Exception('Sampling runs in an infinite loop!!!')
         
         elbo1 = 0 if not self.Rf is None else - L/self.num_nodes**2 * \
@@ -371,3 +372,83 @@ class VI_HRG(VI_RG):
         rs = Radius(r_x_loc, r_x_scale, R.expand([self.num_nodes])).sample([num_samples])
         phis = VonMisesFisher(phi_x_loc, phi_x_scale.unsqueeze(dim=-1)).sample(num_samples)
         return torch.stack((rs,c2d(phis)), dim=-1)
+    
+    
+    def edge_lh(self, idx1, idx2, weights):
+        ''' 
+        ARGUMENTS:
+        
+        idx1 (torch.int, size: L): start nodes.
+        idx2 (torch.int, size: L): finish nodes.
+        weights (torch.float, size: L): edges weights.
+        
+        '''
+        L = len(weights)   # Batch size
+        r_x_loc, r_x_scale, phi_x_loc, phi_x_scale, R_x_conc, R_x_scale, T_x, \
+            alpha_x_conc, alpha_x_scale = self.constrained_params() 
+        
+        edges = torch.where(weights>0, 
+                            torch.ones(weights.size()).to(self.device).to(self.dtype), 
+                            torch.zeros(weights.size()).to(self.device).to(self.dtype))
+        
+        R_q = Gamma(R_x_conc, R_x_scale.reciprocal())
+        T_q = Beta(T_x[0], T_x[1])
+        alpha_q = Gamma(alpha_x_conc, alpha_x_scale.reciprocal())
+        
+        # Because of numerical instability we put the sampling of several parameters
+        # into a loop, wich can be exited only if the samping produces 'stable' results             
+        loop_count = 0
+        while True:
+            loop_count += 1
+            if self.Rf is None:
+                R_samples = R_q.rsample([self.num_samples]).squeeze(-1).to(self.device).to(self.dtype)
+            else:
+                R_samples = torch.tensor(self.Rf).clone().detach().to(self.device).to(self.dtype).expand([self.num_samples])
+            if self.Tf is None:
+                T_samples = T_q.rsample([self.num_samples]).squeeze(-1).to(self.device).to(self.dtype)
+            else:
+                T_samples = torch.tensor(self.Tf).clone().detach().to(self.device).to(self.dtype).expand([self.num_samples])
+            if self.alphaf is None:
+                alpha_samples = alpha_q.rsample([self.num_samples]).squeeze(-1).to(self.device).to(self.dtype)
+            else:
+                alpha_samples = torch.tensor(self.alphaf).clone().detach().to(self.device).to(self.dtype).expand([self.num_samples])
+        
+            r_q = Radius(r_x_loc.expand(self.num_samples,self.num_nodes), 
+                           r_x_scale.expand(self.num_samples,self.num_nodes), 
+                           R_samples.expand(self.num_nodes,self.num_samples).t())
+            r_samples = r_q.rsample().to(self.device).to(self.dtype)
+        
+            l1e_a_ri = log1mexp(alpha_samples.expand(L,self.num_samples).t()*r_samples[:,idx1]*2)
+            l1e_a_R = log1mexp(alpha_samples*R_samples)
+            a_R_ri = - alpha_samples.expand(L,self.num_samples).t()*\
+                        (R_samples.expand(L,self.num_samples).t()-r_samples[:,idx1])
+            r_q_lp = r_q.log_prob(r_samples)
+            r_q_lp = torch.clamp(r_q_lp, min=-1e+4)
+            phi_q = VonMisesFisher(phi_x_loc, phi_x_scale.unsqueeze(dim=-1))
+            phi_samples = phi_q.rsample(self.num_samples).to(self.device).to(self.dtype)
+            cd_raw = cosh_dist(r_samples[:,idx1], r_samples[:,idx2], 
+                           c2d(phi_samples[:,idx1]), c2d(phi_samples[:,idx2]))
+            edes_prob_arg = ((cd_raw*2).log()-R_samples.expand(L,self.num_samples).t())/(2*T_samples.expand(L,self.num_samples).t())
+            if not (bad_tensor(warn_tensor(a_R_ri, 'a_R_ri')) \
+                    or bad_tensor(warn_tensor(l1e_a_ri, 'l1e_a_ri')) \
+                    or bad_tensor(warn_tensor(l1e_a_R, 'l1e_a_R')) \
+                    or bad_tensor(warn_tensor(r_q_lp, 'r_q_lp')) \
+                    or bad_tensor(warn_tensor(edes_prob_arg, 'edes_prob_arg')) ):
+                break
+            if loop_count > 200:
+                raise Exception('Sampling runs in an infinite loop!!!')
+        
+            
+        lp = edges*clmpd_log1pexp(edes_prob_arg) + (1-edges)*clmpd_log1pexp_(edes_prob_arg)
+        return lp.mean(dim=0)
+    
+    def get_A_lh(self, dataloader):
+        ''' Compute the model likelihood       
+        '''        
+        self.dataloader = dataloader
+        A_lh = torch.zeros([self.num_nodes, self.num_nodes]).to(self.device).to(self.dtype)
+        for idx1, idx2, data in self.dataloader:
+            idx1, idx2, data = idx1.to(self.device), idx2.to(self.device), data.to(self.device)
+            lh = self.edge_lh(idx1, idx2, data)
+            A_lh[idx1, idx2] = lh.detach().clone()            
+        return A_lh
