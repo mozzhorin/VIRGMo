@@ -537,7 +537,7 @@ class HRG():
         Mr = M * self.r
         Mt = M * self.theta
         Md = hyperdist(Mr, Mr.t(), Mt, Mt.t())
-        #Md = undirect(Md)
+        Md = undirect(Md)
         if self.T==0:
             W = undirect((Md<self.R).float())
             print(W)
@@ -597,14 +597,18 @@ class HRG():
         plt.colorbar()
         plt.show()
         
-    def plot(self, figsize=(6,6)):
+    def plot(self, figsize=(6,6), n_orig=None):
         nodes = torch.stack((self.r,self.theta), dim=1)
         A_ = self.A.triu(diagonal=1)
         fig = plt.figure(figsize=figsize)
         ax = plt.subplot(111, projection='polar')
-        ax.scatter(nodes[:,1].numpy(), nodes[:,0].numpy(), color='black', alpha=0.7, s=6)
+        if n_orig is None:
+            n_orig = len(self.A)
+        colors = ['black' if i<n_orig else 'red' for i in range(len(nodes))]
+        
         for link in A_.nonzero():
             ax.plot(nodes[link,1].numpy(), nodes[link,0].numpy(), color='gray', alpha=0.2)
+        ax.scatter(nodes[:,1].numpy(), nodes[:,0].numpy(), color=colors, alpha=0.7, s=6)
         ax.set_rmax(self.R.max()*1.02)
         ax.set_rticks([]) 
         ax.set_axis_off()
