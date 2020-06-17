@@ -1,12 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Created on Fri Nov  8 11:40:36 2019
-
-@author: mozzhorin
+Variational inference for graphon.
 """
 
 import time
-
 import warnings
 import pickle
 import copy
@@ -207,25 +204,6 @@ class VI_Graphon(VI_RG):
         if not truth is None:
             self.show_error(truth, threshold)
         self.show_us()
-        
-        
-#    def show_predictions_W(self):
-#        ''' Shows predicitions.
-#        
-#        ARGUMENTS:
-#        '''
-#        self.predictions = Variable(torch.zeros([self.num_nodes,self.num_nodes]), 
-#                                    requires_grad=False).to(self.device)
-#        u_init = (torch.arange(1.,self.num_nodes+1)/(self.num_nodes+1)).to(self.device)
-#        for idx1, idx2, data in self.dataloader:
-#            idx1_ = idx1.unsqueeze(-1).to(self.device, torch.float32)
-#            idx2_ = idx2.unsqueeze(-1).to(self.device, torch.float32)
-#            
-#            self.predictions[idx1, idx2] = self.predict_W(u_init[idx1].unsqueeze(-1).to(torch.float32), 
-#                                  u_init[idx2].unsqueeze(-1).to(torch.float32))
-#        plt.imshow(self.predictions.detach().numpy())
-#        plt.colorbar()
-#        plt.show()
         
         
     def show_us(self, us=None):

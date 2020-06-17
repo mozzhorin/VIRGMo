@@ -16,12 +16,7 @@ from torch.distributions.dirichlet import Dirichlet
 from torch.distributions.beta import Beta
 from torch.distributions.normal import Normal
 from torch.utils.data import Dataset, DataLoader
-#import torch.nn as nn
-#import torch.nn.functional as F
-#from torch.nn.functional import sigmoid
-
 from utils import diriKL, gammaKL, normKL, warn_tensor
-#from graph_models import WDCSBM, DCSBM, SBM, EdgesDataset, WCRG
 
 softmax = torch.nn.Softmax(dim=0)
 
@@ -455,7 +450,7 @@ class VI_RG(torch.nn.Module):
             perms[p] = tmp.clone()
         compare = torch.empty(len(perm_list), len(truth))
         for p in range(len(perm_list)):
-           compare[p] = perms[p]==truth
+            compare[p] = perms[p]==truth
         # Choose the permutation with the highest accuracy rate
         return compare.sum(dim=-1).div(len(truth)).max() 
         
