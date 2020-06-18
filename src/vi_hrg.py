@@ -79,6 +79,7 @@ class VI_HRG(VI_RG):
                  fixed={'R':None, 
                         'T':None,
                         'alpha':None},
+                clamp_dist=False,
                  device=None):
         ''' Initialize the model.
         
@@ -99,7 +100,8 @@ class VI_HRG(VI_RG):
         self.fixed = fixed
         self.dtype = dtype
         self.epsilon = 1e-5  # Keeps some params away from extream values
-        self.max_cosh = 1e+24
+        self.max_cosh = 1e+10
+        self.clamp_dist = clamp_dist
 #        if device is not None:
 #            self.device = device
 #        else:
@@ -148,7 +150,7 @@ class VI_HRG(VI_RG):
             rs_scale = self.init_values['rs_scale']
             
         if self.init_values['phis_loc'] is None:
-            phis_loc = Normal(0,1).sample([self.num_nodes,2]).log()
+            phis_loc = Normal(0,1).sample([self.num_nodes,2])
         else:
             phis_loc = self.init_values['phis_loc']
             
@@ -200,6 +202,7 @@ class VI_HRG(VI_RG):
             self.alpha_scale = torch.nn.Parameter(alpha_scale.to(self.device).to(self.dtype))
         else:
             self.alpha_conc, self.alpha_scale = torch.tensor(0.), torch.tensor(0.)
+        
         
         
     def constrained_params(self):
@@ -273,6 +276,10 @@ class VI_HRG(VI_RG):
             phi_samples = phi_q.rsample(self.num_samples).to(self.device).to(self.dtype)
             cd_raw = cosh_dist(r_samples[:,idx1], r_samples[:,idx2], 
                            c2d(phi_samples[:,idx1]), c2d(phi_samples[:,idx2]))
+            #if debug:
+                #print(cd_raw)
+            if self.clamp_dist:
+                cd_raw = torch.clamp(cd_raw, max=self.max_cosh)
             edes_prob_arg = ((cd_raw*2).log()-R_samples.expand(L,self.num_samples).t())/(2*T_samples.expand(L,self.num_samples).t())
             if not (bad_tensor(warn_tensor(a_R_ri, 'a_R_ri')) \
                     or bad_tensor(warn_tensor(l1e_a_ri, 'l1e_a_ri')) \
@@ -340,6 +347,16 @@ class VI_HRG(VI_RG):
             loss = self.elbo(idx1, idx2, data, debug=debug, likelihood=True)
             total_lh += loss.detach().clone()            
         return total_lh.item()
+        
+    def elbo_full(self, debug=False):
+        ''' Compute the full elbo      
+        '''        
+        elbo = 0
+        for idx1, idx2, data in self.dataloader:
+            idx1, idx2, data = idx1.to(self.device), idx2.to(self.device), data.to(self.device)
+            loss = self.elbo(idx1, idx2, data, debug=debug)
+            elbo += loss.detach().clone()            
+        return elbo.item()
         
     def qmean(self):
         ''' Return mean values of posterior variational distributions.

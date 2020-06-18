@@ -540,7 +540,6 @@ class HRG():
         Md = undirect(Md)
         if self.T==0:
             W = undirect((Md<self.R).float())
-            print(W)
         else:
             W = 1/(1+((Md-self.R)/(2*self.T)).exp())
         self.A = self.sample_A(W, directed=False)
