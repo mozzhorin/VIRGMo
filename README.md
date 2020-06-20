@@ -21,7 +21,7 @@ $ python setup.py install
 - [`vi_rg`](virgmo/vi_rg.py): VI for random graphs (abstract parent class)
 - [`vi_sbm`](virgmo/vi_sbm.py): VI for stochastic block models
 - [`vi_graphon`](virgmo/vi_graphon.py) - VI for graphons
-- [`vi_hrg`](virgmo/vi_hrg.p: - VI for hyperbolic random graphs
+- [`vi_hrg`](virgmo/vi_hrg.py): - VI for hyperbolic random graphs
 - [`utils`](virgmo/utils.py): util functions
 - [`graph_models`](virgmo/graph_models.py): random graph models for network data generation and `EdgesDataset` for effective training
 - [`distributions`](virgmo/distributions): several Pytorch implementations of non-build-in distributions (including the von Mises-Fisher and hyperspherical Uniform distributions from https://github.com/nicola-decao/s-vae-pytorch)
