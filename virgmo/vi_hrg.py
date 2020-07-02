@@ -23,8 +23,8 @@ from virgmo.utils import (unit_circle, log1mexp, cosh_dist, c2d, bad_tensor,
      warn_tensor, clmpd_log1pexp, clmpd_log1pexp_)
 #from graph_models import EdgesDataset, EdgesIterableDataset, HRG
 from virgmo.vi_rg import VI_RG
-from distributions.von_mises_fisher import VonMisesFisher
-from distributions.radius import Radius
+from virgmo.distributions.von_mises_fisher import VonMisesFisher
+from virgmo.distributions.radius import Radius
 
 softmax = torch.nn.Softmax(dim=0)
 
