@@ -700,4 +700,40 @@ class EdgesDataset(Dataset):
     
     def __getitem__(self, idx):
         return self.edges[idx]
+    
+class BipartitEdgesDataset(EdgesDataset):
+    ''' Dataset class for a bipartit graph; transformes the given bipartit 
+    adjacency matrix to a list of possible edges; allowes to iterate over them.
+    
+    Parameters:
+    
+    A (torch.Tensor, size: number of nodes * number of nodes):
+        adjacency matrix of a bipartit graph, sorted by the class.
+        
+    m (int) : number of nodes in the first class.
+    
+    edges (triple of torch.Tensor):
+        list of edges; each edge defined as (start node {torch.int}, 
+        finish node {torch.int}, weight {torch.float}).
+        
+    Example (with torch.utils.data.DataLoader):
+    
+    >> dataloader = DataLoader(EdgesDataset(A), 
+                               batch_size=10, 
+                               shuffle=True, 
+                               num_workers=0)
+    >> dataiter = iter(dataloader)
+    >> idx1, idx2, data = dataiter.next()
+    '''
+    
+    def __init__(self, adj_matrix, m, directed=True, diagonal=True):
+        super(EdgesDataset).__init__()
+        assert adj_matrix.size()[0]==adj_matrix.size()[1]
+        self.A = adj_matrix
+        n = self.A.size()[0]
+        edges = []
+        for i in range(m):
+            for j in range(m,n):
+                edges.append((i,j,self.A[i,j]))
+        self.edges = edges
         

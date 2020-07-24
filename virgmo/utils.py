@@ -12,6 +12,7 @@ softmax = torch.nn.Softmax(dim=0)
 
 def warning_on_one_line(message, category, filename, lineno, file=None, line=None):
     return ' %s:%s: %s:%s \n' % (filename, lineno, category.__name__, message)
+
 warnings.simplefilter('once', UserWarning)
 warnings.formatwarning = warning_on_one_line
 
@@ -141,12 +142,44 @@ def bad_tensor(tensor):
     '''
     return bool(torch.isnan(tensor).sum() + torch.isinf(tensor).sum())
 
+def class_accuracy(z, eta):
+    ''' Return the best accuracy of nodes' class assignments for all 
+    permutations of class' labels. 
+        
+    ARGUMENTS:
+        
+    z (torch.Tensor, size: N*K): binary matrix indicating the true class 
+        assignment for each data point.
+    eta (torch.Tensor, size: K*N): 
+        posterior class assignment probabilities of each node.
+    '''
+    eta = eta.cpu()
+    z = z.cpu()
+    num_classes = eta.shape[0]
+    pred = eta.argmax(dim=0)
+    truth = z.argmax(dim=-1).float()
+    perm_list = list(itertools.permutations(range(num_classes)))
+    pred_modify = pred + num_classes
+    # Calculate all permutations predicted/true class names
+    perms = torch.empty(len(perm_list), len(truth))        
+    for p in range(len(perm_list)):
+        tmp = pred_modify.clone()
+        for i in range(num_classes):
+            tmp = torch.where(tmp==(num_classes+i), 
+                              torch.tensor(perm_list[p][i]), tmp)
+        perms[p] = tmp.clone()
+    compare = torch.empty(len(perm_list), len(truth))
+    for p in range(len(perm_list)):
+        compare[p] = perms[p]==truth
+    # Choose the permutation with the highest accuracy rate
+    return compare.sum(dim=-1).div(len(truth)).max()
+
 def p_app_warn(c,R,T):
     ''' Calculate the approximate probability of an edge in HRG,
     raise warnings and clean up NaNs. 
     '''
     temp1 = (2* warn_tensor(c, 'c')).pow(1./(2.*warn_tensor(T, 'T')))
-    temp1_ = torch.where(torch.isnan(temp1), torch.tensor(np.inf).expand(temp1.shape).to(self.dtype), temp1)
+    temp1_ = torch.where(torch.isnan(temp1), torch.tensor(np.inf).expand(temp1.shape), temp1)
     temp2 = (- warn_tensor(R, 'R')/(2.* warn_tensor(T, 'T'))).exp()
     return (1. + warn_tensor(temp1_, 'temp1_')*warn_tensor(temp2, 'temp2')).reciprocal()
     
@@ -293,48 +326,73 @@ def polar2cart(r, theta):
     return torch.stack((r * theta.cos(), r * theta.sin()), dim=-1).squeeze()
 
 def unit_circle(x):
+    '''Constraines cartesian coordinates on a unit circle.
+    
+    ARGUMENTS:    
+        x (torch.tensor): cartesian coordinates
+    
+    RETURNS:        
+        (torch.tensor) Cartesian coordinates on a 2D unit circle.
+    '''
     x0, x1 = x.select(-1,0), x.select(-1,1)
     theta = torch.atan2(x1,x0)
     return torch.stack((theta.cos(), theta.sin()), dim=-1).squeeze()
 
-def hrg_likelihood(A, r, phi_polar, R, T, alpha, debug=False):
+def hrg_likelihood(A, r, phi, R, T, alpha, debug=False):
+    ''' Calculate the log-likelihood of the given HRG of N nodes.
+    
+    ARGUMENTS:    
+        A (torch.tensor, size: N*N): adjacency matrix
+        r (torch.tensor, size: N): polar radius coordinates
+        phi (torch.tensor, size: N): polar angle coordinates
+        R (torch.tensor, size: 1): model parameter (the size of the disc)
+        T (torch.tensor, size: 1): model parameter
+        alpha (torch.tensor, size: 1): model parameter
+        debug (bool): prints debag info if True
+    
+    RETURNS:        
+        (float) Log-likelihood of the graph
+    '''
+    eps = -1e+10
     n = len(r)
     edges = torch.where(A>0, 
                             torch.ones(A.size()), 
                             torch.zeros(A.size()))
     l1e_a_ri = log1mexp(alpha*r*2)
-    #print(l1e_a_ri.sum())
     l1e_a_R = log1mexp(alpha*R)
-   # print(l1e_a_R)
     a_R_ri = alpha * (r-R)
-    #print(a_R_ri.sum())
     r_matrix = r.expand(n,n)
-    phi_matrix = phi_polar.expand(n,n)
-    cd = cosh_dist(r_matrix, r_matrix.t(), phi_matrix, phi_matrix.t())
+    phi_matrix = phi.expand(n,n)
+    hd = hyperdist(r_matrix, r_matrix.t(), phi_matrix, phi_matrix.t())
     if T==0:
-        l1pe = ((cd*2).log()-R)/(2*T)
+        threshold = torch.where(hd<R,
+                                torch.zeros(hd.size()),
+                                torch.ones(hd.size())*eps)
+        threshold_ = torch.where(hd<R,
+                                torch.ones(hd.size())*eps,
+                                torch.zeros(hd.size()))
+        lp = torch.where(edges==1,
+                        threshold,
+                        threshold_)
     else:
-        l1pe = ((cd*2).log()-R)/(2*T)
+        l1pe = (hd-R)/(2*T)
         lp = edges*(-log1pexp(l1pe)) + (1-edges)*(log1pexp_(l1pe))
+    lp = lp.triu(diagonal=1)
+    
     if debug: print('Prob edges >>', lp.sum().item())
     if debug: print('a_R_ri  >>', (a_R_ri+l1e_a_ri).sum().item())
     if debug: print('Alpha       >>', alpha.log().item())
     if debug: print('l1e_a_R     >>', 2*l1e_a_R.item())
     out = lp.sum() + (a_R_ri+l1e_a_ri).sum() + alpha.log() \
         - torch.tensor(np.pi*2).log() - 2*l1e_a_R
-    return out.item()
+    return lp.sum().item()
 
 def hrg_L(A, r, phi_polar, R, T, alpha, debug=False):
     n = len(r)
     edges = torch.where(A>0, 
                             torch.ones(A.size()), 
                             torch.zeros(A.size()))
-    #l1e_a_ri = log1mexp(alpha*r*2)
-    #print(l1e_a_ri.sum())
-    #l1e_a_R = log1mexp(alpha*R)
-    #print(l1e_a_R)
-    #a_R_ri = alpha * (r-R)
-    #print(a_R_ri.sum())
+    
     r_matrix = r.expand(n,n)
     phi_matrix = phi_polar.expand(n,n)
     cd = cosh_dist(r_matrix, r_matrix.t(), phi_matrix, phi_matrix.t())

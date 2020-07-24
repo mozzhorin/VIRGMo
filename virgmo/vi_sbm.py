@@ -111,17 +111,17 @@ class VI_SBM(VI_RG):
             except:
                 etas = torch.rand([self.num_classes, self.num_nodes]).to(self.device)
         else:
-            etas = self.init_values['etas'].to(self.device)
+            etas = self.init_values['etas'].clone().to(self.device)
             
         if self.init_values['thetas'] is None:
             thetas = torch.rand([self.num_classes]).to(self.device)
         else:
-            thetas = self.init_values['thetas'].to(self.device)
+            thetas = self.init_values['thetas'].clone().to(self.device)
             
         if self.init_values['Bs'] is None:
             Bs = torch.rand([self.num_classes, self.num_classes, 2]).to(self.device)
         else:
-            Bs = self.init_values['Bs'].to(self.device)
+            Bs = self.init_values['Bs'].clone().to(self.device)
             
         self.etas = torch.nn.Parameter(etas)
         self.thetas = torch.nn.Parameter(thetas)
@@ -181,39 +181,6 @@ class VI_SBM(VI_RG):
         print('Edges probability:\n', qmean[2].numpy())
         if len(qmean)>3:
             return qmean
-        
-    def class_accuracy(self, z, eta=None):
-        ''' Return the best accuracy of nodes' class assignments for all 
-        permutations of class' labels. 
-        
-        ARGUMENTS:
-        
-        z (torch.Tensor, size: N*K): binary matrix indicating the true class 
-            assignment for each data point.
-        eta (torch.Tensor, size: K*N): 
-            posterior class assignment probabilities of each node.
-        '''
-        if eta is None:
-            eta = self.qmean()[0]
-        eta = eta.cpu()
-        z = z.cpu()
-        pred = eta.argmax(dim=0)
-        truth = z.argmax(dim=-1).float()
-        perm_list = list(itertools.permutations(range(self.num_classes)))
-        pred_modify = pred + self.num_classes
-        # Calculate all permutations predicted/true class names
-        perms = torch.empty(len(perm_list), len(truth))        
-        for p in range(len(perm_list)):
-            tmp = pred_modify.clone()
-            for i in range(self.num_classes):
-                tmp = torch.where(tmp==(self.num_classes+i), 
-                                  torch.tensor(perm_list[p][i]), tmp)
-            perms[p] = tmp.clone()
-        compare = torch.empty(len(perm_list), len(truth))
-        for p in range(len(perm_list)):
-            compare[p] = perms[p]==truth
-        # Choose the permutation with the highest accuracy rate
-        return compare.sum(dim=-1).div(len(truth)).max()
 
 ###############################################################################
         
@@ -304,7 +271,7 @@ class VI_DCSBM(VI_SBM):
         if self.init_values['deltas'] is None:
             deltas = torch.rand([self.num_nodes, 2]).to(self.device)
         else:
-            deltas = self.init_values['deltas'].to(self.device)            
+            deltas = self.init_values['deltas'].clone().to(self.device)            
          
         self.deltas = torch.nn.Parameter(deltas)
     
@@ -477,12 +444,12 @@ class VI_WDCSBM(VI_DCSBM):
         if self.init_values['mus'] is None:
             mus = torch.rand([self.num_classes, self.num_classes, 2]).to(self.device)
         else:
-            mus = self.init_values['mus'].to(self.device)
+            mus = self.init_values['mus'].clone().to(self.device)
             
         if self.init_values['taus'] is None:
             taus = torch.rand([self.num_classes, self.num_classes, 2]).to(self.device)
         else:
-            taus = self.init_values['taus'].to(self.device)
+            taus = self.init_values['taus'].clone().to(self.device)
 
         self.mus = torch.nn.Parameter(mus)
         self.taus = torch.nn.Parameter(taus)
@@ -596,7 +563,7 @@ class VI_WSBM(VI_SBM):
             [5., 10., 2.],
             [2., 2., 20.]])
     g_tau = torch.ones([3,3])*2
-    model = WDCSBM(p, b, delta, g_mu.log(), g_tau) 
+    model = WSBM(p, b, delta, g_mu.log(), g_tau) 
     z, A = model.generate(N, directed=True)
     model.show(sorted=True)       
     dataloader = DataLoader(EdgesDataset(A), 
@@ -655,12 +622,12 @@ class VI_WSBM(VI_SBM):
         if self.init_values['mus'] is None:
             mus = torch.rand([self.num_classes, self.num_classes, 2]).to(self.device)
         else:
-            mus = self.init_values['mus'].to(self.device)
+            mus = self.init_values['mus'].clone().to(self.device)
             
         if self.init_values['taus'] is None:
             taus = torch.rand([self.num_classes, self.num_classes, 2]).to(self.device)
         else:
-            taus = self.init_values['taus'].to(self.device)
+            taus = self.init_values['taus'].clone().to(self.device)
 
         self.mus = torch.nn.Parameter(mus)
         self.taus = torch.nn.Parameter(taus)
@@ -834,22 +801,22 @@ class VI_WCRG(VI_RG):
             except:
                 etas = torch.rand([self.num_classes, self.num_nodes]).to(self.device)
         else:
-            etas = self.init_values['etas'].to(self.device)
+            etas = self.init_values['etas'].clone().to(self.device)
             
         if self.init_values['thetas'] is None:
             thetas = torch.rand([self.num_classes]).to(self.device)
         else:
-            thetas = self.init_values['thetas'].to(self.device)
+            thetas = self.init_values['thetas'].clone().to(self.device)
             
         if self.init_values['mus'] is None:
             mus = torch.rand([self.num_classes, self.num_classes, 2]).to(self.device)
         else:
-            mus = self.init_values['mus'].to(self.device)
+            mus = self.init_values['mus'].clone().to(self.device)
             
         if self.init_values['taus'] is None:
             taus = torch.rand([self.num_classes, self.num_classes, 2]).to(self.device)
         else:
-            taus = self.init_values['taus'].to(self.device)
+            taus = self.init_values['taus'].clone().to(self.device)
             
         self.etas = torch.nn.Parameter(etas)
         self.thetas = torch.nn.Parameter(thetas)

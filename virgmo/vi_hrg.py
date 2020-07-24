@@ -143,47 +143,47 @@ class VI_HRG(VI_RG):
         if self.init_values['rs_loc'] is None:
             rs_loc = torch.rand([self.num_nodes]).log()
         else:
-            rs_loc = self.init_values['rs_loc']
+            rs_loc = self.init_values['rs_loc'].clone()
             
         if self.init_values['rs_scale'] is None:
             rs_scale = (torch.ones([self.num_nodes])/4).log()
         else:
-            rs_scale = self.init_values['rs_scale']
+            rs_scale = self.init_values['rs_scale'].clone()
             
         if self.init_values['phis_loc'] is None:
             phis_loc = Normal(0,1).sample([self.num_nodes,2])
         else:
-            phis_loc = self.init_values['phis_loc']
+            phis_loc = self.init_values['phis_loc'].clone()
             
         if self.init_values['phis_scale'] is None:
             phis_scale = (torch.ones([self.num_nodes])*20).log()
         else:
-            phis_scale = self.init_values['phis_scale']
+            phis_scale = self.init_values['phis_scale'].clone()
             
         if self.init_values['R_conc'] is None:
             R_conc = torch.tensor(20.).log()
         else:
-            R_conc = self.init_values['R_conc']
+            R_conc = self.init_values['R_conc'].clone()
             
         if self.init_values['R_scale'] is None:
             R_scale = torch.tensor(.4).log()
         else:
-            R_scale = self.init_values['R_scale']
+            R_scale = self.init_values['R_scale'].clone()
             
         if self.init_values['T'] is None:
             T = torch.tensor([1., 15.]).log()
         else:
-            T = self.init_values['T']
+            T = self.init_values['T'].clone()
             
         if self.init_values['alpha_conc'] is None:
             alpha_conc = torch.tensor(75.).log()
         else:
-            alpha_conc = self.init_values['alpha_conc']
+            alpha_conc = self.init_values['alpha_conc'].clone()
             
         if self.init_values['alpha_scale'] is None:
             alpha_scale = torch.tensor(0.01).log()
         else:
-            alpha_scale = self.init_values['alpha_scale']
+            alpha_scale = self.init_values['alpha_scale'].clone()
             
         self.rs_loc = torch.nn.Parameter(rs_loc.to(self.device).to(self.dtype))
         self.rs_scale = torch.nn.Parameter(rs_scale.to(self.device).to(self.dtype))
