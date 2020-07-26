@@ -647,12 +647,6 @@ class EdgesIterableDataset(IterableDataset):
                 edges.append((i,j,self.A[i,j]))
         self.edges = edges
         
-#    def __len__(self):
-#        return len(self.edges)
-#    
-#    def __getitem__(self, idx):
-#        return self.edges[idx]
-        
     def __iter__(self):
         return iter(self.edges)
         

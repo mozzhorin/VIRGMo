@@ -17,7 +17,7 @@ warnings.simplefilter('once', UserWarning)
 warnings.formatwarning = warning_on_one_line
 
 def diriKL(alphas, betas):
-    ''' Kullback-Leibler Divergence Between Two Dirichlet Distributions.    
+    ''' Kullback-Leibler divergence between two Dirichlet distributions.    
     See http://bariskurt.com/kullback-leibler-divergence-between-two-dirichlet-and-beta-distributions/
     K - number of classes.
     d - number of parameters of the disrtibutions.
@@ -41,6 +41,7 @@ def diriKL(alphas, betas):
     return kl
     
 def normKL(dist1, dist2):
+    ''' Kullback-Leibler divergence between two Normal distributions.   '''
     if len(dist1.shape)==1:
         mu1, sig1, mu2, sig2 = dist1[0], dist1[1], dist2[0], dist2[1]
     elif len(dist1.shape)==2:
@@ -57,6 +58,8 @@ def normKL(dist1, dist2):
         return tmp
     
 def normKLv(dist1, dist2):
+    ''' Kullback-Leibler divergence between two Normal distributions 
+    (vectorized version).   '''
     mu1, sig1 = dist1[:,0], dist1[:,1]
     mu2, sig2 = dist2[:,0], dist2[:,1]
     tmp = 0.5*(mu1-mu2).pow(2)/sig2.pow(2)\
@@ -64,13 +67,8 @@ def normKLv(dist1, dist2):
     return tmp    
     
 def gammaKL(gamma_1, gamma_2):
-    ''' Kullback-Leibler Divergence Between Two Gamma Distributions.    
+    ''' Kullback-Leibler divergence between two Gamma distributions.    
     See https://stats.stackexchange.com/questions/11646/kullback-leibler-divergence-between-two-gamma-distributions
-    K - number of classes.
-    d - number of parameters of the disrtibutions.
-    
-    Arguments:
-    
     '''
     if len(gamma_1.shape)==1:
         gamma_10, gamma_11, gamma_20, gamma_21 = gamma_1[0], gamma_1[1], gamma_2[0], gamma_2[1]
@@ -83,20 +81,12 @@ def gammaKL(gamma_1, gamma_2):
         return - c * d / a - b * a.log() - b.lgamma()\
                 + (b-1)*(d.digamma() + c.log())    
     tmp = I(gamma_11,gamma_10,gamma_11,gamma_10) - I(gamma_21,gamma_20,gamma_11,gamma_10)
-#    if torch.isinf(tmp).sum():
-#        print(tmp)
-#        return torch.zeros(tmp.shape)
-#    else:
     return tmp
             
 def gammaKLalt(gamma_1, gamma_2):
-    ''' Kullback-Leibler Divergence Between Two Gamma Distributions.    
-    See https://stats.stackexchange.com/questions/11646/kullback-leibler-divergence-between-two-gamma-distributions
-    K - number of classes.
-    d - number of parameters of the disrtibutions.
-    
-    Arguments:
-    
+    ''' Kullback-Leibler divergence between two Gamma distributions 
+    (alternative version).   
+    See https://stats.stackexchange.com/questions/11646/kullback-leibler-divergence-between-two-gamma-distributions    
     '''
     cq = gamma_1[0]
     bq = gamma_1[1]
@@ -106,13 +96,9 @@ def gammaKLalt(gamma_1, gamma_2):
         + cp.lgamma() + cp*bp.log() - (cp-1)*(cq.digamma() + bq.log()) + bq*cq/bp
             
 def gammaKLv(gamma_1, gamma_2):
-    ''' Kullback-Leibler Divergence Between Two Gamma Distributions.    
-    See https://stats.stackexchange.com/questions/11646/kullback-leibler-divergence-between-two-gamma-distributions
-    K - number of classes.
-    d - number of parameters of the disrtibutions.
-    
-    Arguments:
-    
+    ''' Kullback-Leibler divergence between two Gamma distributions
+    (vectorized version).
+    See https://stats.stackexchange.com/questions/11646/kullback-leibler-divergence-between-two-gamma-distributions    
     '''
     def I(a,b,c,d):    
         return - c * d / a - b * a.log() - b.lgamma()\
@@ -122,8 +108,10 @@ def gammaKLv(gamma_1, gamma_2):
             
 def warn_tensor(tensor, variable):
     '''Raise a warning if 'tensor' has NaN or inf in it, returns 'tensor'.
-    tensor : torch.Tensor
-    variable (str): name of the tensor. 
+    
+    Arguments:
+        tensor : torch.Tensor
+        variable (str): name of the tensor. 
     '''
     if torch.isnan(tensor).sum()>0:
         warnings.warn(str('%s has NaN in it!' % variable))
@@ -136,9 +124,11 @@ def warn_tensor(tensor, variable):
     return tensor
     
 def bad_tensor(tensor):
-    '''Raise a warning if 'tensor' has NaN or inf in it, returns 'tensor'.
-    tensor : torch.Tensor
-    variable (str): name of the tensor. 
+    '''Checks if 'tensor' has NaN or inf in it.
+    
+    Arguments:
+        tensor : torch.Tensor
+        variable (str): name of the tensor. 
     '''
     return bool(torch.isnan(tensor).sum() + torch.isinf(tensor).sum())
 
@@ -146,7 +136,7 @@ def class_accuracy(z, eta):
     ''' Return the best accuracy of nodes' class assignments for all 
     permutations of class' labels. 
         
-    ARGUMENTS:
+    Arguments:
         
     z (torch.Tensor, size: N*K): binary matrix indicating the true class 
         assignment for each data point.
@@ -184,6 +174,7 @@ def p_app_warn(c,R,T):
     return (1. + warn_tensor(temp1_, 'temp1_')*warn_tensor(temp2, 'temp2')).reciprocal()
     
 def class_compare(eta1, eta2):
+    ''' Helps to evaluate SBM results: shows the different between classses.'''
     z2 = eta2.argmax(dim=0).float()
     z1 = eta1.argmax(dim=0).float()
     z1_unique = z1.unique()
@@ -218,28 +209,37 @@ def class_compare(eta1, eta2):
     
     return best_score, z1, best_z2, diff_id.sort().values, best_perm
     
+# Transforms A to an undirected graph (mirrors the top right part) without self-loops
 undirect = lambda A: A.triu(diagonal=1) + A.triu(diagonal=1).t()
 
+# Inverse hyperbolic cosine aka area hyperbolic cosine
 arcosh = lambda x: (x + (x**2 - 1).sqrt()).log()
 
+# Hyperbolic distance
 hyperdist = lambda rx,ry,fx,fy: arcosh(rx.cosh()*ry.cosh() - rx.sinh()*ry.sinh()*(fx-fy).cos())
 
+# Link probability in HRG
 p_hd = lambda rx,ry,fx,fy,R,T: 1/(1+((hyperdist(rx,ry,fx,fy)-R)/(2*T)).exp())
 
+# Cosh of hyperbolic distance
 cosh_dist = lambda rx,ry,fx,fy: rx.cosh()*ry.cosh()-rx.sinh()*ry.sinh()*(fx-fy).cos()
 
+# Cosh of hyperbolic distance with NaN-inf warnings 
 cosh_dist_warn = lambda rx,ry,fx,fy: warn_tensor(rx.cosh()*ry.cosh(), 'coshs') -\
                 warn_tensor(rx.sinh()*ry.sinh(), 'sinhs')*(fx-fy).cos()
 
+# Approximated link probability in HRG
 p_approx = lambda c,R,T: (1.+(2*c).pow(1./(2.*T))*(-R/(2.*T)).exp()).reciprocal()
 
 logit = lambda x: (x/(1-x)).log()
 
+# Accurately Computing log(1 − exp(−|a|)) 
 # https://cran.r-project.org/web/packages/Rmpfr/vignettes/log1mexp-note.pdf
 log1mexp = lambda a: torch.where(a>torch.tensor(2.).to(a.dtype).log(),
                                 torch.log1p(-torch.exp(-a)),
                                 torch.log(-torch.expm1(-a)))
 
+# Accurately Computing log(1 + exp(−|a|)) 
 log1pexp = lambda a: torch.where(a>torch.tensor(18.).to(a.dtype),
                                  torch.where(a>torch.tensor(33.3).to(a.dtype),
                                              a,
@@ -248,6 +248,7 @@ log1pexp = lambda a: torch.where(a>torch.tensor(18.).to(a.dtype),
                                              a.exp().log1p(),
                                              a.exp()))
 
+# Accurately Computing [1 - log(1 − exp(−|a|))] 
 log1pexp_ = lambda a: torch.where(a>torch.tensor(18.).to(a.dtype),
                                  torch.where(a>torch.tensor(33.3).to(a.dtype),
                                              torch.zeros(a.size()).to(a.dtype),
@@ -255,19 +256,20 @@ log1pexp_ = lambda a: torch.where(a>torch.tensor(18.).to(a.dtype),
                                  torch.where(a>torch.tensor(-37.).to(a.dtype),
                                              a - a.exp().log1p(),
                                              a - a.exp()))
-                                 
+# Clamped version of log(1 + exp(−|a|))                                 
 clmpd_log1pexp = lambda a: torch.where(a>torch.tensor(16.).to(a.dtype),
                                  -a,
                                  torch.where(a>torch.tensor(-16.).to(a.dtype),
                                              -a.exp().log1p(),
                                              torch.tensor(-1e-8).to(a.dtype).expand(a.size())))
-
+# Clamped version of [1 - log(1 − exp(−|a|))] 
 clmpd_log1pexp_ = lambda a: torch.where(a>torch.tensor(16.).to(a.dtype),
                                  torch.tensor(-1e-8).to(a.dtype).expand(a.size()),
                                  torch.where(a>torch.tensor(-16.).to(a.dtype),
                                              a - a.exp().log1p(),
                                              a))
 
+# Further, some linear approximations for log1pexp
 lin_app1 = lambda a: torch.where(a>torch.tensor(-1.3).to(a.dtype),
                                  torch.min(-0.5*a-0.7, -a),
                                  torch.tensor(-0.05).to(a.dtype).expand(a.size()))
@@ -326,7 +328,7 @@ def polar2cart(r, theta):
     return torch.stack((r * theta.cos(), r * theta.sin()), dim=-1).squeeze()
 
 def unit_circle(x):
-    '''Constraines cartesian coordinates on a unit circle.
+    '''Constraine cartesian coordinates on a unit circle.
     
     ARGUMENTS:    
         x (torch.tensor): cartesian coordinates
@@ -402,6 +404,8 @@ def hrg_L(A, r, phi_polar, R, T, alpha, debug=False):
     return out.item()
 
 def permute_classes(tensor, perm=None):
+    '''Permute class assignments for better visual representation. 
+    Also if there are many empty classes.'''
     t = tensor + tensor.max()
     uni = t.unique().clone()
     if perm is None:

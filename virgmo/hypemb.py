@@ -29,7 +29,7 @@ import pandas as pd
 import os
 
 def A2edgelist(A):
-    ''' Transforms the unweighted adjacency matrix A to the list of edges.
+    ''' Transform the unweighted adjacency matrix A to the list of edges.
     
     ARGUMENTS:
         A (torch.tensor, size: N*N): adjacency matrix
@@ -47,7 +47,28 @@ def A2edgelist(A):
 grad_transform = lambda grad: 2*np.pi*grad/360
 
 def hyperbolic_embedder(A, name='virgmo/hrg_el', seed=32472351):
+    ''' Python-API for hyperbolic-embedder (HE). 
     
+    ATTENTION! You need to set the path to yours HE installation in 'hypemb_dir' 
+    first. 
+    Also important to consider: HE uses only the great component, so the number 
+    of returned nodes can be smaller than N=len(A).
+    
+    ARGUMENTS:
+        A (torch.tensor, size: N*N): adjacency matrix
+        name (str): embedding name/path
+        seed (int): random seed
+        
+    RETURNS:
+        R_est (float): estimated R
+        alpha_est (float): estimated alpha
+        T_est (float): estimated T
+        r_init (torch.Tensor): estimated r-coordinates
+        phi_init(torch.Tensor): estimated phi-coordinates
+        ids (numpy.array): nodes indices
+    '''
+    
+    # Path to the installed embedder. SET IT!!!
     hypemb_dir = '../../hyperbolic-embedder/'
     python_dir = os.getcwd()
     

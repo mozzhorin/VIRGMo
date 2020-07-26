@@ -221,14 +221,16 @@ class VI_HRG(VI_RG):
 
                 
     def elbo(self, idx1, idx2, weights, debug=False, likelihood=False):
-        ''' Return evidence lower bound (ELBO) calculated for a nodes batch 
-        of size L; also the loss for the training.
+        ''' Return evidence lower bound (ELBO, training loss) or likelihood 
+        for a nodes batch of size L.
         
         ARGUMENTS:
         
         idx1 (torch.int, size: L): start nodes.
         idx2 (torch.int, size: L): finish nodes.
         weights (torch.float, size: L): edges weights.
+        likelihood (bool): return the batch's likelihood instead of ELBO?
+        debug (bool): print intermediate values for debugging?
         
         '''
         L = len(weights)   # Batch size
@@ -326,10 +328,6 @@ class VI_HRG(VI_RG):
         elbo10 = 1/self.num_nodes * q_phi_entropy.sum()
         if debug: print('P(q_phii)   >>', str(elbo10))
         
-#        if not self.Rf is None: elbo1 = 0 
-#        if not self.alphaf is None: elbo2 = 0 
-#        if not self.Tf is None: elbo3 = 0         
-        
         elbo = elbo1+elbo2+elbo3+elbo4+elbo5+elbo6+elbo7+elbo8+elbo9+elbo10 
         lh = elbo4+elbo5+elbo6+elbo7+elbo8
         if debug: print('ELBO >>>>', str(elbo))
@@ -340,8 +338,7 @@ class VI_HRG(VI_RG):
             return elbo
     
     def likelihood(self, debug=False):
-        ''' Compute the model likelihood       
-        '''        
+        ''' Compute the model likelihood.'''        
         total_lh = 0
         for idx1, idx2, data in self.dataloader:
             idx1, idx2, data = idx1.to(self.device), idx2.to(self.device), data.to(self.device)
@@ -350,8 +347,7 @@ class VI_HRG(VI_RG):
         return total_lh.item()
         
     def elbo_full(self, debug=False):
-        ''' Compute the full elbo      
-        '''        
+        ''' Compute the full elbo without training steps. '''        
         elbo = 0
         for idx1, idx2, data in self.dataloader:
             idx1, idx2, data = idx1.to(self.device), idx2.to(self.device), data.to(self.device)
@@ -360,8 +356,7 @@ class VI_HRG(VI_RG):
         return elbo.item()
         
     def qmean(self):
-        ''' Return mean values of posterior variational distributions.
-        '''
+        ''' Return mean values of posterior variational distributions.'''
         r_x_loc, r_x_scale, phi_x_loc, phi_x_scale, R_x_conc, R_x_scale, T_x, \
             alpha_x_conc, alpha_x_scale = self.constrained_params()
         if self.Rf is None:    
@@ -381,6 +376,9 @@ class VI_HRG(VI_RG):
         return rs, phis, R, T, alpha
     
     def posterior_samples(self, num_samples=20):
+        ''' Return the posterior samples of hyperbolic coordinates, 
+        used for drawing the node positions.'''
+        
         r_x_loc, r_x_scale, phi_x_loc, phi_x_scale, R_x_conc, R_x_scale, T_x, \
             alpha_x_conc, alpha_x_scale = self.constrained_params()
             
@@ -394,7 +392,8 @@ class VI_HRG(VI_RG):
     
     
     def edge_lh(self, idx1, idx2, weights):
-        ''' 
+        ''' Calculate the likelihood of a single edge.
+        
         ARGUMENTS:
         
         idx1 (torch.int, size: L): start nodes.
@@ -462,8 +461,7 @@ class VI_HRG(VI_RG):
         return lp.mean(dim=0)
     
     def get_A_lh(self, dataloader):
-        ''' Compute the model likelihood       
-        '''        
+        ''' Compute the likelihood of A (without Dataloader).'''        
         self.dataloader = dataloader
         A_lh = torch.zeros([self.num_nodes, self.num_nodes]).to(self.device).to(self.dtype)
         for idx1, idx2, data in self.dataloader:
